@@ -26,7 +26,6 @@ License:
     See the License for the specific language governing permissions and
     limitations under the License.
 """
-#hi ocean here check check
 
 # Standard imports:
 from pathlib import Path
