@@ -273,6 +273,8 @@ class Camera:
                 self._picam_camera.Connected = False
                 self._picam_camera.close()
         self._log_debug('PI camera hardware released')
+
+        #im gay
                     
 
 
