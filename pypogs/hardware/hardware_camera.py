@@ -7,8 +7,6 @@ Current hardware support:
 
     - :class:`pypogs.Camera`: 'ascom' for ASCOM-enabled cameras.  Requires ASCOM platform, ASCOM drivers, and native drivers.
       Tested with FIXME.
-
-    - :class:`pypogs.Camera`: 'picam' for Raspberry Pi camera module.
       
       
 This is Free and Open-Source Software originally written by Gustav Pettersson at ESA.
@@ -28,6 +26,7 @@ License:
     See the License for the specific language governing permissions and
     limitations under the License.
 """
+
 # Standard imports:
 from pathlib import Path
 import logging
@@ -43,7 +42,7 @@ import serial
 
 # Hardware support imports:
 import zwoasi
-import picamera
+import picamera 
 
 _zwoasi_bayer = {0:'RGGB', 1:'BGGR', 2:'GRBG', 3:'GBRG'}                                                        
 
@@ -89,8 +88,9 @@ class Camera:
             # Release the hardware
             cam.deinitialize()
     """
-    _supported_models = ('ptgrey','zwoasi','ascom')
-    _default_model = 'zwoasi'
+    _supported_models = ('ptgrey','zwoasi','ascom','picam')
+    #_default_model = 'zwoasi'
+    _default_model = 'picam'
 
     def __init__(self, model=None, identity=None, name=None, auto_init=True, debug_folder=None, properties=[]):
         """Create Camera instance. See class documentation."""
@@ -144,10 +144,10 @@ class Camera:
         self._ascom_driver_handler = None
         self._ascom_camera = None
         self._exposure_sec = 0.1
-        #Only used for ascom
-        self._picam_camera = None
-        self._picam_is_init = None
-        self._picam_property = None
+        #Only used for picamera 
+        self._picam_camera = None 
+        '''WHAT ELSE TO ADD?'''
+        
         #Callbacks on image event
         self._call_on_image = set()
         self._got_image_event = Event()
@@ -156,6 +156,8 @@ class Camera:
         self._imgs_since_start = 0
         self._average_frame_time = None  # Running average of time between frames in ms
         self._image_precision_timestamp = None  # Precision timestamp of last frame
+
+        
 
         self._logger.debug('Calling self on constructor input')
         if model is not None:
@@ -264,10 +266,14 @@ class Camera:
         self._log_debug('ASCOM camera hardware released')
 
     def _picam_release(self):
-    """PRIVATE: Release Picamer hardware resources."""
-    self._log_debug('ASCOM camera release called')
-    if self._picam_camera is not None:
-        #Code for the release of the hardware resources
+        """PRIVATE: Release ASCOM hardware resources."""
+        self._log_debug('PI camera release called')
+        if self._picam_camera is not None:
+            if self._picam_camera.Connected:
+                self._picam_camera.Connected = False
+                self._picam_camera.close()
+        self._log_debug('PI camera hardware released')
+                    
 
 
     @property
@@ -288,6 +294,7 @@ class Camera:
             - 'ptgrey' for FLIR/Point Grey cameras (using Spinnaker/PySpin SDKs).
             - 'zwoasi' for ZWO ASI cameras.
             - 'ascom'  for ASCOM-enabled cameras.
+            - 'picam' for PiCamera
 
         - This will determine which hardware API that is used.
         - Must set before initialising the device and may not be changed for an initialised device.
@@ -314,6 +321,7 @@ class Camera:
         - For model *ascom*, a driver name may be specified if known, (i.e. DSLR, ASICamera1, ASICamera2, Simulator,
         QHYCCD, QHYCCD_GUIDER, QHYCCD_CAM2, AtikCameras, AtikCameras2, etc), otherwise the ASCOM driver
         selector will open.
+        - For model *picam* ... define model 
         """
         return self._identity
     @identity.setter
@@ -384,6 +392,9 @@ class Camera:
                     if detected_camera.lower().replace('zwo ','') == identity.lower().replace('zwo ',''):
                         self._zwoasi_camera_index = detected_camera_idx
                         break
+            elif self.model.lower() == 'picam':
+                
+
             else:
                 raise AssertionError('Unrecognized identity')
 
@@ -424,6 +435,7 @@ class Camera:
             self._identity = identity
             self._log_debug('Specified identity: "'+str(self.identity)+'" ['+str(len(self.identity))+']')
             #ascom_camera = None
+
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -527,13 +539,7 @@ class Camera:
             self._ptgrey_camera.RegisterEventHandler( self._ptgrey_event_handler )
             self._log_debug('Registered ptgrey image event handler')
             self._log_info('Camera successfully initialised')
-
-        elif self.model.lower() == 'picam':
-            self._log_debug('Using picam, try to initialise')
-            #Basic Setup
             
-             
-
         elif self.model.lower() == 'zwoasi':
             self._log_debug('Using zwoasi, try to initialise')
             assert self._zwoasi_camera_index is not None, 'ZWO camera index not determined from identity'
