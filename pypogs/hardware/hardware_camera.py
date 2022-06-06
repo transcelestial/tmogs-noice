@@ -393,10 +393,7 @@ class Camera:
                 for detected_camera_idx, detected_camera in enumerate(zwo_camera_names):
                     if detected_camera.lower().replace('zwo ','') == identity.lower().replace('zwo ',''):
                         self._zwoasi_camera_index = detected_camera_idx
-                        break
-            elif self.model.lower() == 'picam':
-                
-
+                        breakßß
             else:
                 raise AssertionError('Unrecognized identity')
 
