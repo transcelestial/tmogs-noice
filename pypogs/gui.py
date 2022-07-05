@@ -34,6 +34,8 @@ import numpy as np
 from pathlib import Path
 import logging
 import sys, os, traceback
+from cv2 import imread #ocean here testing
+import cv2 as cv
 
 COMMAND = 0
 MOUNT = 1
@@ -44,6 +46,11 @@ NONE = 0
 STAR_OL = 1
 COARSE_CCL = 2
 FINE_FCL = 3
+DEMO = 4
+
+frame8 = None
+
+
 
 class GUI:
     """Create a Graphical User Interface which controls the given System.
@@ -98,6 +105,7 @@ class GUI:
         self.hardware_frame = HardwareFrame(self.root, self.sys, self.logger)
         self.hardware_frame.grid(row=0, column=0, columnspan=2, padx=10, pady=(10,0), sticky=tk.N)
         self.logger.debug('Loading LiveViewFrame')
+        self.logger.info('YO they loading the liveviewframe') #ocean here
         self.live_frame = LiveViewFrame(self.root, self.sys, self.logger)
         self.live_frame.grid(row=0, rowspan=2, column=2, padx=(0,10), pady=10)
         self.live_frame.start(gui_update_ms)
@@ -332,7 +340,7 @@ class TrackingControlFrame(ttk.Frame):
         self.sys = pypogs_system
         self._update_stop = True
         self._update_after = 1000
-        
+
         self.logger.debug('Creating label and buttons')
 
         ttk.Label(self, text='Tracking').pack(fill=tk.BOTH, expand=True)
@@ -368,6 +376,7 @@ class TrackingControlFrame(ttk.Frame):
                                                                 .pack(fill=tk.BOTH, expand=True)
         ttk.Button(self, text='Stop Tracking', command=self.stop_tracking_callback, width=12) \
                                                                 .pack(fill=tk.BOTH, expand=True)
+    
         self.update()
 
     def update(self):
@@ -419,25 +428,39 @@ class TrackingControlFrame(ttk.Frame):
         except Exception as err:
             self.logger.debug('Could not set FCL enable', exc_info=True)
             ErrorPopup(self, err, self.logger)
-#        self.update()
+        self.update()
 
     def start_tracking_callback(self):
         if self.sys.mount is not None and self.sys.mount.is_init and self.sys.mount._is_sidereal_tracking:
             self.logger.debug('Sidereal tracking is on.  Will turn off.')
             self.sys.mount.stop_sidereal_tracking()
+        
+        # if self.target_selection_combo.get() == 'SPOTTRACKER':
+        #     try:
+        #         self.sys.sys_demo_bool_True() #set system_demo_bool to True
+        #         self.sys.tar_demo_bool_True() #set target_demo_bool to True
+        #         #self.sys.start_demo_tracking_v2() #uncomment this when the skipping stuff is done
+        #     except Exception as err:
+        #         self.logger.debug('Did not start tracking', exc_info=True)
+        #         ErrorPopup(self, err, self.logger)
+
+        # else:
         try:
             self.sys.start_tracking()
         except Exception as err:
             self.logger.debug('Did not start tracking', exc_info=True)
             ErrorPopup(self, err, self.logger)
+            
     def stop_tracking_callback(self):
         self.logger.debug('TrackingControlFrame got stop request')
         try:
+            # self.sys.sys_demo_bool_False() #set system_demo_bool to False
+            # self.sys.tar_demo_bool_False() #set target_demo_bool to False
             self.sys.stop()
         except Exception as err:
             self.logger.debug('Did not stop', exc_info=True)
             ErrorPopup(self, err, self.logger)
-
+    
     def start(self, after=None):
         """Give number of milliseconds to wait between updates."""
         self.logger.debug('TrackingControlFrame got start request with after={}'.format(after))
@@ -495,12 +518,15 @@ class LiveViewFrame(ttk.Frame):
         self.tk_image = None
         self.canvas_image = None
         self.logger.debug('Creating radiobuttons for camera selection')
+        self.is_demo_tracking = False #ocean here, for checking demo tracking
+        self.tracking_frame = None #ocean here, for inputting tracking image
 
         # Top row under live view
         self.logger.debug('Filling bottom frame with interactive controls')
         ttk.Label(self.bottom_frame1, text='Camera (Tracker):').grid(row=0, column=0)
         self.camera_variable = tk.IntVar()
-        self.camera_variable.set(NONE)
+        
+        self.camera_variable.set(STAR_OL)
         ttk.Radiobutton(self.bottom_frame1, text='None', variable=self.camera_variable, value=NONE) \
                 .grid(row=0, column=1, padx=(5,0))
         ttk.Radiobutton(self.bottom_frame1, text='Star (OL)', variable=self.camera_variable, value=STAR_OL) \
@@ -509,6 +535,8 @@ class LiveViewFrame(ttk.Frame):
                 .grid(row=0, column=4, padx=(5,0))
         ttk.Radiobutton(self.bottom_frame1, text='Fine (FCL)', variable=self.camera_variable, value=FINE_FCL) \
                 .grid(row=0, column=5, padx=(5,0))
+        # ttk.Radiobutton(self.bottom_frame1, text='DEMO', variable=self.camera_variable, value=DEMO) \
+        #         .grid(row=0, column=5, padx=(5,0))
         self.logger.debug('Creating entry and checkbox for image max value control')
         ttk.Label(self.bottom_frame1, text='Max Value:').grid(row=0, column=6, padx=(20,0))
         self.max_entry = ttk.Entry(self.bottom_frame1, width=10)
@@ -556,6 +584,17 @@ class LiveViewFrame(ttk.Frame):
                                                             .grid(row=0, column=6, padx=(50,0))											
 
         self.logger.debug('Finished creating. Calling update on self')
+
+        #OCEAN HERE DEMO TRACKING TEST
+        ttk.Button(self.bottom_frame2, text='Start DEMO Tracking V1', command=self.start_demo_tracking_callback) \
+                                                            .grid(row=1, column=4, padx=(5,0))
+        ttk.Button(self.bottom_frame2, text='Stop DEMO Tracking V1', command=self.stop_demo_tracking_callback) \
+                                                            .grid(row=2, column=4, padx=(5,0))     
+        ttk.Button(self.bottom_frame2, text='Start DEMO Tracking V2', command=self.start_demo_tracking_callback_v2) \
+                                                            .grid(row=1, column=5, padx=(5,0))
+        ttk.Button(self.bottom_frame2, text='Stop DEMO Tracking V2', command=self.stop_demo_tracking_callback_v2) \
+                                                            .grid(row=2, column=5, padx=(5,0))                                                                                                             
+
         self.update()
 
     def clear_tracker_callback(self):
@@ -763,6 +802,8 @@ class LiveViewFrame(ttk.Frame):
             cam = self.camera_variable.get()
             if cam == COARSE_CCL:
                 self.logger.debug('Setting search pos for CCL')
+                #ocean
+                self.logger.info('Setting search pos for CCL')
                 plate_scale = self.sys.coarse_camera.plate_scale
                 search_pos = [x_image / self.image_scale * plate_scale, y_image / self.image_scale * plate_scale]
                 self.logger.info('Setting coarse search position to: ' + str(search_pos))
@@ -776,20 +817,179 @@ class LiveViewFrame(ttk.Frame):
             else:
                 self.logger.error('No camera selected in canvas click callback')
             self.set_search_variable.set(False)
+    
+    #ocean here demo tracking
+    def start_demo_tracking_callback(self):
+        
+        #determined center
+        actual_center = (720, 540) #FIXME need to add a setter + getter thingamagic
+
+        def compute_dist(frame, actual_center, final):
+            x_error = final[0] - actual_center[0] #print it out
+            y_error = final[1]- actual_center[1]
+            str_x = str(round(x_error,2))
+            str_y = str(round(y_error,2))
+            cv.line(frame, (int(final[0]), int(final[1])), actual_center, (255, 255, 255), 1)
+            cv.putText(
+                img = frame,
+                text = "actual center:" + str(round(actual_center[0],2)) + ", " + str(round(actual_center[1],2)),
+                org = (100 , 50),
+                fontFace = cv.FONT_HERSHEY_DUPLEX,
+                fontScale = 1.0,
+                color = (255,255,255),
+                thickness = 1
+            )
+            cv.putText(
+                img = frame,
+                text = "beacon center: " + str(round(final[0],2)) + ", " + str(round(final[1], 2)),
+                org = (100 , 100),
+                fontFace = cv.FONT_HERSHEY_DUPLEX,
+                fontScale = 1.0,
+                color = (255,255,255),
+                thickness = 1
+            )
+            cv.putText(
+                img = frame,
+                text = "x_error: " + str_x + "    y_error: " + str_y,
+                org = (100 , 150),
+                fontFace = cv.FONT_HERSHEY_DUPLEX,
+                fontScale = 1.0,
+                color = (255,255,255),
+                thickness = 1
+            )
+            return frame
+
+        def cropping(gray):
+            # print("reso", gray.shape)
+            height_gray = gray.shape[0]
+            width_gray = gray.shape[1]
+            padding = 25   
+            (minVal, maxVal, minLoc, maxLoc) = cv.minMaxLoc(gray)
+            print("maxLoc", maxLoc)
+            print("maxVal", maxVal)
+            width_start = min(max(maxLoc[0]-padding, 0), width_gray)
+            width_end = min(max(maxLoc[0] + padding, 0), width_gray)
+            height_start = min(max(maxLoc[1]-padding, 0), height_gray)
+            height_end = min(max(maxLoc[1]+padding, 0), height_gray)
+            print("bounding box", height_start, height_end, width_start, width_end)
+            
+            frame8 = cv.convertScaleAbs(gray, alpha=0.25)
+            crop_frame8 = frame8[height_start:height_end, width_start:width_end] #height, width
+            # cv.imshow('crop 8', crop_frame8)
+
+            crop_frame = gray[height_start:height_end, width_start:width_end] #height, width
+            ret,thresh1 = cv.threshold(crop_frame,127,255,cv.THRESH_TOZERO)
+            # calculate moments of THRESH image
+            M = cv.moments(thresh1)
+            # calculate x,y coordinate of center
+            if M["m00"] != 0:
+                cX = (M["m10"] / M["m00"])
+                cY = (M["m01"] / M["m00"])
+            else:
+                cX, cY = 0, 0
+                return
+                
+            print("center coord", cX, cY)
+
+            final_coord = (width_start+cX, height_start+cY)
+
+            print("final coord",final_coord)
+            
+            lined_frame = compute_dist(frame8, actual_center, final_coord)
+
+            cv.circle(lined_frame, (int(width_start+cX) , int(height_start+cY)), 20, 255, 1)
+            self.tracking_frame = lined_frame
+            return lined_frame
+            #cv.imshow('gray', frame8)
+
+        self.is_demo_tracking = True
+        cam = self.camera_variable.get()
+
+        if cam == NONE : #camera is off
+            self.logger.info('cam is off')
+            camera = cv.VideoCapture("/dev/video0", cv.CAP_V4L2)
+            camera.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc('Y','1','0',' '))
+            camera.set(cv.CAP_PROP_CONVERT_RGB, 0)
+
+            if not camera.isOpened():
+                print("Cannot open camera")
+
+            ret, frame = camera.read() # Capture frame-by-frame
+            # if frame is read correctly ret is True
+           
+            if not ret:
+                print("Can't receive frame (stream end?). Exiting ...")
+
+            cropping(frame)
+
+        else: #camera is already on
+            self.logger.info('cam is on')
+
+            if cam == STAR_OL:
+                if self.sys.star_camera.is_running:
+                    self.logger.info('star cam is on')
+                    img = self.sys.star_camera.get_latest_image() 
+        
+            elif cam == COARSE_CCL:  
+                if self.sys.coarse_camera.is_running:  
+                    self.logger.info('coarse cam is on')
+                    img = self.sys.coarse_camera.get_latest_image()
+                
+            elif cam == FINE_FCL:
+                if self.sys.fine_camera.is_running:
+                    self.logger.info('fine cam is on')
+                    img = self.sys.fine_camera.get_latest_image()
+
+            cropping(img)
+           
+                
+    def stop_demo_tracking_callback(self):
+        self.is_demo_tracking = False
+        self.logger.debug('demo tracking got stop request')
+        try:
+            self.sys.stop()
+        except Exception as err:
+            self.logger.debug('Did not stop', exc_info=True)
+            ErrorPopup(self, err, self.logger)
+
+    def start_demo_tracking_callback_v2(self):
+        if self.sys.mount is not None and self.sys.mount.is_init and self.sys.mount._is_sidereal_tracking:
+            self.logger.debug('Sidereal tracking is on.  Will turn off.')
+            self.sys.mount.stop_sidereal_tracking()
+        try:
+            self.sys.sys_demo_bool_True() #set system_demo_bool to True
+            #self.sys.tar_demo_bool_True() #set target_demo_bool to True
+            self.sys.start_demo_tracking_v2() #uncomment this when the skipping stuff is done
+        except Exception as err:
+            self.logger.debug('Did not start tracking', exc_info=True)
+            ErrorPopup(self, err, self.logger)
+            
+    def stop_demo_tracking_callback_v2(self):
+        self.logger.debug('TrackingControlFrame got stop request')
+        try:
+            self.sys.sys_demo_bool_False() #set system_demo_bool to False
+            #self.sys.tar_demo_bool_False() #set target_demo_bool to False
+            self.sys.stop()
+        except Exception as err:
+            self.logger.debug('Did not stop', exc_info=True)
+            ErrorPopup(self, err, self.logger)
+
 
     def update(self):
         """Update the canvas with an image"""
         self.logger.debug('LiveViewFrame got update request')
-        # Read desired camera
         cam = self.camera_variable.get()
         self.logger.debug('Selected camera is {} (1 star, 2 coarse, 3 fine, 0 none)'.format(cam))
         # Check if we have it, otherwise switch to none
         if cam == STAR_OL and (self.sys.star_camera is None or not self.sys.star_camera.is_init): cam = NONE
         if cam == COARSE_CCL and (self.sys.coarse_camera is None or not self.sys.coarse_camera.is_init): cam = NONE
         if cam == FINE_FCL and (self.sys.fine_camera is None or not self.sys.fine_camera.is_init): cam = NONE
+
         self.logger.debug('After validity checks setting camera to {}'.format(cam))
         self.camera_variable.set(cam)
-        img = None
+        #static = np.random.randint(low=0,high=255,size=(640,480)) #ocean here this is to show static
+        img = None #ocean here this is default here one, dont delete
+
         goal_pos = (None, None)
         offset_pos = (None, None)
         plate_scale = None
@@ -800,11 +1000,25 @@ class LiveViewFrame(ttk.Frame):
         search_pos = (None, None)
         search_rad = None
         exposure = None
+
+        # #checks if demo tracking is on
+        
+        # if cam == DEMO:
+        #     if self.is_demo_tracking == True:
+        #         self.logger.debug('Trying to get DEMO tracking data')
+        #         self.logger.info('Trying to get DEMO tracking data')
+        #         img = self.tracking_frame
+        #         self.start_demo_tracking_callback()
+        #     else:
+        #         img = None
+
+
         if cam == STAR_OL:
             self.logger.debug('Trying to get star OL data')
+            self.logger.info('Trying to get star OL data') #ocean here 
             try:
                 if not self.sys.star_camera.is_running: self.sys.star_camera.start()
-                img = self.sys.star_camera.get_latest_image()
+                img = self.sys.star_camera.get_latest_image() 
                 plate_scale = self.sys.star_camera.plate_scale
                 rotation = self.sys.star_camera.rotation
                 goal_pos = self.sys.control_loop_thread.OL_goal_x_y
@@ -815,6 +1029,7 @@ class LiveViewFrame(ttk.Frame):
                     self.logger.debug('Could not get offset', exc_info=True)
             except:
                 self.logger.debug('Failed', exc_info=True)
+
         elif cam == COARSE_CCL:
             self.logger.debug('Trying to get coarse CCL data')
             try:
@@ -855,6 +1070,19 @@ class LiveViewFrame(ttk.Frame):
                 exposure = self.sys.fine_camera.exposure_time
             except:
                 self.logger.debug('Failed', exc_info=True)
+        
+        elif cam == NONE:
+            # if self.sys.star_camera and self.sys.coarse_camera and self.sys.fine_camera == None:
+            if self.is_demo_tracking == True:
+                self.logger.debug('Trying to get DEMO tracking data')
+                self.logger.info('Trying to get DEMO tracking data')
+                img = self.tracking_frame
+                self.start_demo_tracking_callback()
+            else:
+                img = None
+            # else:
+            #     img = None
+
 
         if img is not None:
             zoom = self.zoom_variable.get()
@@ -863,10 +1091,12 @@ class LiveViewFrame(ttk.Frame):
             offs_y = round(height / 2 * (1 - 1/zoom))
             width = width//zoom
             height = height//zoom
+            
             try:
                 img = img[offs_y:offs_y+height, offs_x:offs_x+width]
             except:
                 self.logger.warning('Failed to zoom image')
+
 
         #self.logger.debug('Setting image to: ' + str(img))
         if img is not None:
@@ -893,9 +1123,10 @@ class LiveViewFrame(ttk.Frame):
             self.logger.debug('Resizing image to: ' + str(self.image_size))
             pil_img = pil_img.resize(self.image_size, resample=Image.NEAREST)
             # Set canvas image (must keep reference to image, otherwise will be garbage collected)
-            self.tk_image = ImageTk.PhotoImage(image=pil_img)
+            self.tk_image = ImageTk.PhotoImage(image=pil_img) 
             if self.canvas_image is None:
                 self.logger.debug('Creating image on canvas')
+                self.logger.info('IMAGE ON CANVAS YO') #ocean
                 self.canvas_image = self.canvas.create_image(0, 0, image=self.tk_image, anchor=tk.NW)
             else:
                 self.canvas.itemconfig(self.canvas_image, image=self.tk_image)
@@ -970,16 +1201,15 @@ class LiveViewFrame(ttk.Frame):
                     self.canvas.tag_raise('offset')
             else:
                 self.logger.debug('Hiding offset')
-                self.canvas.tag_lower('offset')
+                self.canvas.tag_lower('offset') 
 
-            if self.annotate_variable.get() and not None in (mean_pos[0], mean_pos[1], track_sd, plate_scale):
+            if self.annotate_variable.get() and not None in (mean_pos[0], mean_pos[1], track_sd, plate_scale): #ocean: circle is here
                 self.logger.debug('Annotating Mean: ' + str(mean_pos) + ' scale: ' + str(track_sd))
                 canvas_x = mean_pos[0] / plate_scale * self.image_scale + self.image_size[0] / 2 - .5
                 canvas_y = -mean_pos[1] / plate_scale * self.image_scale + self.image_size[1] / 2 + .5
                 canvas_sd = track_sd / plate_scale * self.image_scale
                 coords = (canvas_x-canvas_sd, canvas_y-canvas_sd, canvas_x+canvas_sd, canvas_y+canvas_sd)
-                self.logger.debug('Circle goes at: ' + str((canvas_x, canvas_y)) + ' radius: ' + str(canvas_sd))
-                colour = 'green'
+ 
                 if self.track_circle_handle is None:
                     self.track_circle_handle = self.canvas.create_oval(*coords, outline=colour, width=2, tag='mean')
                 else:
@@ -1117,6 +1347,7 @@ class HardwareFrame(ttk.Frame):
     def update(self):
         """Update the status of all buttons."""
         self.logger.debug('HardwareFrame got update request')
+        self.logger.info('HardwareFrame got update request')
         # Mount
         if self.sys.mount is None:
             ttk.Style().configure('mount.TButton',\
@@ -1194,10 +1425,11 @@ class HardwareFrame(ttk.Frame):
 
     def star_callback(self):
         self.logger.debug('HardwareFrame star button clicked')
+        self.logger.info('OCEAN HI HardwareFrame star button clicked') #yo ocean here
         try:
             if self.star_popup is None:
                 self.star_popup = self.HardwarePopup(self, 'camera', self.sys.star_camera, self.sys.add_star_camera, \
-                                                     self.sys.clear_star_camera, title='Star camera', \
+                                                     self.sys.clear_star_camera, title='Star camera lolol', \
                                                      default_name='StarCamera', link_device=self.sys.coarse_camera, \
                                                      link_func=self.sys.add_coarse_camera_from_star)
             else:
@@ -1294,15 +1526,21 @@ class HardwareFrame(ttk.Frame):
                 ttk.Checkbutton(setup_frame, text='Link Star and Coarse', variable=self.linked_bool) \
                                                                 .grid(row=r, column=0)
                 r+=1
-
             ttk.Label(setup_frame, text='Model:').grid(row=r, column=0); r+=1
             self.model_combo = ttk.Combobox(setup_frame, values=master.sys._supported_models[device_type])
             self.model_combo.grid(row=r, column=0); r+=1
             self.model_combo.set(device.model if device and device.model else master.sys._default_model[device_type] or '')
             ttk.Label(setup_frame, text='Identity:').grid(row=r, column=0); r+=1
+                        # self.lat_entry.insert(0, str(round(old_lat, 4)))
             self.identity_entry = ttk.Entry(setup_frame, width=20)
             self.identity_entry.grid(row=r, column=0); r+=1
-            self.identity_entry.insert(0, device.identity if device and device.identity else '')
+            #ocean here we are lazy to type 
+            if device_type == 'mount':
+                self.identity_entry.insert(0, '/dev/ttyUSB0')
+            elif device_type == 'camera':
+                self.identity_entry.insert(0, 0)
+            else:
+                self.identity_entry.insert(0, device.identity if device and device.identity else '')
             ttk.Label(setup_frame, text='Name:').grid(row=r, column=0); r+=1
             self.name_entry = ttk.Entry(setup_frame, width=20)
             self.name_entry.grid(row=r, column=0); r+=1
@@ -1320,6 +1558,7 @@ class HardwareFrame(ttk.Frame):
 
         def update(self):
             self.logger.debug('HardwarePopup got update request')
+            self.logger.info('HardwarePopup got update request lmao') #ocean here
             #self.model_entry.delete(0, 'end')
             #self.identity_entry.delete(0, 'end')
             #self.name_entry.delete(0, 'end')
@@ -1349,6 +1588,7 @@ class HardwareFrame(ttk.Frame):
             self.update()
 
         def connect_callback(self):
+            self.logger.info('HardwarePopup connect button clicked') # ocean checking for if this runs
             self.logger.debug('HardwarePopup connect button clicked')
             # Read the entries
             model = self.model_combo.get()
@@ -1531,7 +1771,7 @@ class TargetFrame(ttk.Frame):
             ttk.Label(target_selection_frame, text='Select satellite:').grid(row=0, column=0, sticky=tk.W)
             self.target_selection_combo = ttk.Combobox(target_selection_frame, values=list(self.master.sys.saved_targets.keys()))
             self.target_selection_combo.grid(row=0, column=2, sticky="EW")
-            self.target_selection_combo.set('ISS')
+            self.target_selection_combo.set('GPS 13')
             ttk.Button(target_selection_frame, text='Get', command=self.get_tle_for_selected_satellite).grid(row=0, column=3, sticky="EW")
 
             # Fetch TLE Input:
@@ -1688,7 +1928,8 @@ class TargetFrame(ttk.Frame):
         def clear_tle_callback(self):
             self.tle_line1_entry.delete(0, tk.END)
             self.tle_line2_entry.delete(0, tk.END)            
-                
+
+        #original code  
         def get_tle_for_selected_satellite(self):
             selected_sat_name = self.target_selection_combo.get()
             self.logger.info('Selected target name: '+selected_sat_name)
@@ -1697,7 +1938,20 @@ class TargetFrame(ttk.Frame):
             self.sat_norad_id_entry.delete(0, tk.END)
             self.sat_norad_id_entry.insert(0,str(self.sat_id))
             self.get_and_set_tle_callback()
-            
+
+        # def get_tle_for_selected_satellite(self):
+        #     selected_sat_name = self.target_selection_combo.get()
+        #     self.logger.info('Selected target name: '+selected_sat_name)
+        #     if selected_sat_name == 'SPOTTRACKER':
+        #         #demo tracking time
+        #         pass
+        #     else:
+        #         if selected_sat_name in self.master.sys.saved_targets:
+        #             self.sat_id = self.master.sys.saved_targets[selected_sat_name]
+        #         self.sat_norad_id_entry.delete(0, tk.END)
+        #         self.sat_norad_id_entry.insert(0,str(self.sat_id))
+        #         self.get_and_set_tle_callback()   
+
         def set_tle_callback(self):
             try:
                 line1 = self.tle_line1_entry.get()
@@ -1837,11 +2091,11 @@ class AlignmentFrame(ttk.Frame):
             self.logger = master.logger
             self.title('Location')
             self.resizable(False, False)
-#            self.grab_set() #Grab control
+            # self.grab_set() #Grab control
             try:
                 (old_lat, old_lon, old_height) = master.sys.alignment.get_location_lat_lon_height()
             except AssertionError:
-                (old_lat, old_lon, old_height) = (0.0,)*3
+                (old_lat, old_lon, old_height) = (1.32, 103.899, 33)  #tct eunos, default is (0.0,)*3  
 
             ttk.Label(self, text='Set Location').grid(row=0, column=0, columnspan=2)
             ttk.Label(self, text='Latitude: (deg)').grid(row=1, column=0, sticky=tk.E)

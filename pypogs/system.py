@@ -33,13 +33,15 @@ import logging
 from threading import Thread
 from csv import writer as csv_write, reader as csv_reader
 from time import sleep, time as timestamp
-import socket, struct, math, re
+import socket
+import struct
+import math
+import re
 
 # External imports:
 import numpy as np
 from astropy.time import Time as apy_time, TimeDelta
 from astropy import units as apy_unit, coordinates as apy_coord, utils as apy_util
-from satellite_tle import fetch_tle_from_celestrak
 from skyfield import sgp4lib as sgp4
 from skyfield import api as sf_api
 from tifffile import imwrite as tiff_write
@@ -49,6 +51,7 @@ from tetra3 import Tetra3
 from .hardware import Camera, Mount, Receiver
 from .tracking import TrackingThread, ControlLoopThread
 from .horizons_ephem import Ephem
+from .tmogs_tle import fetch_tle_from_celestrak
 
 # Useful definitions:
 EPS = 10**-6  # Epsilon for use in non-zero check
@@ -166,10 +169,10 @@ class System:
 
         Example satellite by ID:
             ::
-            
+
                 tle = sys.target.get_tle_from_sat_id(25544)
                 sys.target.set_target_from_tle(tle)                
-                
+
         Example star:
             ::
 
@@ -198,6 +201,7 @@ class System:
 
     def __init__(self, data_folder=None, debug_folder=None):
         """Create System instance. See class documentation."""
+        self.system_demo_bool = False
         # Logger setup
         self._debug_folder = None
         if debug_folder is None:
@@ -215,7 +219,8 @@ class System:
             fh = logging.FileHandler(self.debug_folder / 'pypogs.txt')
             fh.setLevel(logging.DEBUG)
             # Format and add
-            formatter = logging.Formatter('%(asctime)s:%(name)s-%(levelname)s: %(message)s')
+            formatter = logging.Formatter(
+                '%(asctime)s:%(name)s-%(levelname)s: %(message)s')
             fh.setFormatter(formatter)
             ch.setFormatter(formatter)
             self._logger.addHandler(fh)
@@ -232,15 +237,18 @@ class System:
         # Threads
         self._coarse_track_thread = None
         self._fine_track_thread = None
-        self._control_loop_thread = ControlLoopThread(self)  # Create the control loop thread
+        self._control_loop_thread = ControlLoopThread(
+            self)  # Create the control loop thread
         self._stellarium_telescope_server = StellariumTelescopeServer(self)
         self._target_server = TargetServer(self)
         # Hardware not managed by threads
         self._star_cam = None
         self._receiver = None
         self._mount = None
-        self._supported_models = {'mount': Mount._supported_models, 'camera': Camera._supported_models, 'receiver': Receiver._supported_models}
-        self._default_model = {'mount': Mount._default_model, 'camera': Camera._default_model, 'receiver': Receiver._default_model}
+        self._supported_models = {'mount': Mount._supported_models,
+                                  'camera': Camera._supported_models, 'receiver': Receiver._supported_models}
+        self._default_model = {'mount': Mount._default_model,
+                               'camera': Camera._default_model, 'receiver': Receiver._default_model}
         self._alignment = Alignment()
         self._target = Target()
         # tetra3 instance used for plate solving
@@ -250,7 +258,8 @@ class System:
         self._thread = None
         # Auto alignment settings
         self._auto_align_tolerate_failures = 3
-        self._auto_align_vectors = [(40, -135), (60, -135), (60, -45), (40, -45), (40, 45), (60, 45), (60, 135), (40, 135)]
+        self._auto_align_vectors = [
+            (40, -135), (60, -135), (60, -45), (40, -45), (40, 45), (60, 45), (60, 135), (40, 135)]
         self._auto_align_settle_time_sec = 1
         self._auto_align_max_trials = 3
         import atexit
@@ -259,13 +268,14 @@ class System:
         self._logger.info('System instance created.')
         # Common targets list:
         self.saved_targets = {
-            'ISS':   25544, 
-            'CSS':   48274, 
-            'HST':   20580, 
+            'GPS 13': 24876,
+            'ISS':   25544,
+            'CSS':   48274,
+            'HST':   20580,
             'Terra': 25994,
+            'SIMPL': 42983,
+            'SPOTTRACKER': 'SPOTTRACKER'
         }
-        
-        
 
     def __del__(self):
         """Destructor. Calls deinitialize()."""
@@ -282,16 +292,22 @@ class System:
     def initialize(self):
         """Initialise cameras, mount, and receiver if they are not already."""
         self._logger.debug('Initialise called')
+        self._logger.info('Initialise called ocean')  # ocean checking
         if self.star_camera is not None:
+            self._logger.info('Has star cam ocean')  # ocean checking
             self._logger.debug('Has star cam')
+            if self.star_camera.is_init:
+                self._logger.info('lesgooooo')  # ocean checking
             if not self.star_camera.is_init:
                 try:
                     self.star_camera.initialize()
                     self._logger.debug('Initialised')
+                    self._logger.info('Initialised ocean')  # ocean checking
                 except BaseException:
                     self._logger.warning('Failed to init', exc_info=True)
             else:
                 self._logger.debug('Already initialised')
+                self._logger.info('Already initialised helo')  # ocean checking
         if self.coarse_camera is not None:
             self._logger.debug('Has coarse cam')
             if not self.coarse_camera.is_init:
@@ -484,7 +500,7 @@ class System:
     def target_server(self):
         """System.TargetServer:  Get the target server object."""
         return self._target_server
-        
+
     @property
     def alignment(self):
         """pypogs.Alignment: Get the system alignment object."""
@@ -517,7 +533,7 @@ class System:
             self._star_cam = cam
         self._logger.debug('Star camera set to: ' + str(self.star_camera))
 
-    def add_star_camera(self, model=None, identity=None, name='StarCamera', auto_init=True, **properties):        
+    def add_star_camera(self, model=None, identity=None, name='StarCamera', auto_init=True, **properties):
         """Create and set the star camera. Calls pypogs.Camera constructor with
         name='StarCamera' and the given arguments.
 
@@ -531,6 +547,7 @@ class System:
                 Camera and auto_init is True (the default), Camera.initialize() will be called
                 after creation.
         """
+        self._logger.info('we adding star')  # ocean
         self._logger.debug('Got add star camera with model=' + str(model)
                            + ' identity='+str(identity) + ' auto_init=' + str(auto_init))
         if self.star_camera is not None:
@@ -545,9 +562,10 @@ class System:
                 self.star_camera = None
                 self._logger.debug('Create new camera')
                 self.star_camera = Camera(model=model, identity=identity, name=name,
-                                        auto_init=auto_init, properties=properties)
+                                          auto_init=auto_init, properties=properties)
         else:
-            self._logger.debug('Dont have anything old to clean up, create new camera')
+            self._logger.debug(
+                'Dont have anything old to clean up, create new camera')
             self.star_camera = Camera(model=model, identity=identity, name=name,
                                       auto_init=auto_init, properties=properties)
         return self.star_camera
@@ -558,7 +576,8 @@ class System:
             self.star_camera = self.coarse_camera
             return self.star_camera
         except BaseException:
-            self._logger.debug('Could not link star from coarse: ', exc_info=True)
+            self._logger.debug(
+                'Could not link star from coarse: ', exc_info=True)
             return None
 
     def clear_star_camera(self):
@@ -592,6 +611,8 @@ class System:
             if self._coarse_track_thread is None:
                 self._logger.info('Creating coarse tracker thread')
                 self._coarse_track_thread = TrackingThread(name='CoarseTracker')
+                self._logger.info('we got a tracking thread')
+                self._logger.debug('we got a tracking thread')
             self._coarse_track_thread.camera = cam
         self._logger.debug('Set coarse camera to: ' + str(self.coarse_camera))
 
@@ -627,7 +648,8 @@ class System:
                                             auto_init=auto_init)
                 return self.coarse_camera
         else:
-            self._logger.debug('Dont have anything old to clean up, create new camera')
+            self._logger.debug(
+                'Dont have anything old to clean up, create new camera')
             self.coarse_camera = Camera(model=model, identity=identity, name=name,
                                         auto_init=auto_init, properties=properties)
         return self.coarse_camera
@@ -638,7 +660,8 @@ class System:
             self.coarse_camera = self.star_camera
             return self.coarse_camera
         except BaseException:
-            self._logger.debug('Could not link coarse from star: ', exc_info=True)
+            self._logger.debug(
+                'Could not link coarse from star: ', exc_info=True)
             return None
 
     def clear_coarse_camera(self):
@@ -681,7 +704,7 @@ class System:
 
         Args:
             model (str, optional): The model used to determine the correct hardware API. Supported:
-                'ptgrey' for PointGrey/FLIR Machine Vision cameras (using Spinnaker/PySpin APIs).
+                'ptgrey'  for PointGrey/FLIR Machine Vision cameras (using Spinnaker/PySpin APIs).
             identity (str, optional): String identifying the device. For *ptgrey* this is
                 'serial number' *as a string*. name (str, optional): Name for the device, defaults
                 to 'FineCamera'.
@@ -706,9 +729,10 @@ class System:
                                           auto_init=auto_init)
                 return self.fine_camera
         else:
-            self._logger.debug('Dont have anything old to clean up, create new camera')
+            self._logger.debug(
+                'Dont have anything old to clean up, create new camera')
             self.fine_camera = Camera(model=model, identity=identity, name=name,
-                                        auto_init=auto_init, properties=properties)
+                                      auto_init=auto_init, properties=properties)
         return self.fine_camera
 
     def clear_fine_camera(self):
@@ -732,7 +756,7 @@ class System:
     @auto_align_settle_time_sec.setter
     def auto_align_settle_time_sec(self, seconds):
         self._auto_align_settle_time_sec = seconds
-        
+
     @property
     def auto_align_max_trials(self):
         """Get or set number of trials allowed at each alignment position"""
@@ -741,7 +765,7 @@ class System:
     @auto_align_max_trials.setter
     def auto_align_max_trials(self, n_trials):
         self._auto_align_max_trials = n_trials
-        
+
     @property
     def coarse_track_thread(self):
         """pypogs.TrackingThread: Get the coarse tracking thread."""
@@ -790,7 +814,8 @@ class System:
                 Receiver and auto_init is True (the default), Receiver.initialize() will be called
                 after creation.
         """
-        self._logger.debug('Got add receiver with args: '+str(args)+' kwargs'+str(kwargs))
+        self._logger.debug('Got add receiver with args: ' +
+                           str(args)+' kwargs'+str(kwargs))
         if self.receiver is not None:
             self._logger.debug('Already have a receiver, clear first')
             self.receiver = None
@@ -840,7 +865,8 @@ class System:
                 Mount and auto_init is True (the default), Mount.initialize() will be called after
                 creation.
         """
-        self._logger.debug('Got add mount with args: '+str(args)+' kwargs'+str(kwargs))
+        self._logger.debug('Got add mount with args: ' +
+                           str(args)+' kwargs'+str(kwargs))
         if self.mount is not None:
             self._logger.debug('Already have a mount, clear first')
             self.mount = None
@@ -850,17 +876,17 @@ class System:
     def clear_mount(self):
         """Set the mount to None."""
         self.mount = None
-        
+
     @property
     def auto_align_tolerate_failures(self):
         """Get or set number of failures to tolerate during auto alignment.        
         """
         return self._auto_align_tolerate_failures
-        
+
     @auto_align_tolerate_failures.setter
     def auto_align_tolerate_failures(self, failure_count):
         self._auto_align_tolerate_failures = failure_count
-        
+
     @property
     def tetra3(self):
         """tetra3.Tetra3: Get or set the tetra3 instance used for plate solving star images. Will
@@ -870,7 +896,7 @@ class System:
             self._logger.debug('Loading default database tetra3')
             self._tetra3 = Tetra3('default_database')
         return self._tetra3
-    
+
     @tetra3.setter
     def tetra3(self, tetra3):
         self._logger.debug('Got set tetra3 instance with' + str(tetra3))
@@ -893,7 +919,7 @@ class System:
         assert self.star_camera is not None, 'No star camera'
         assert self.is_init, 'System not initialized'
         assert not self.is_busy, 'System is busy'
-        
+
         if pos_list is None:
             pos_list = self.auto_align_vectors
         if settle_time_sec is None:
@@ -902,8 +928,10 @@ class System:
             max_trials = self.auto_align_max_trials
 
         def run():
-            self._logger.info('Starting auto-alignment with reference vectors: ' + str(pos_list))
-            print('Starting auto-alignment with reference vectors: ' + str(pos_list) + ' and settling time ' + str(settle_time_sec))
+            self._logger.info(
+                'Starting auto-alignment with reference vectors: ' + str(pos_list))
+            print('Starting auto-alignment with reference vectors: ' +
+                  str(pos_list) + ' and settling time ' + str(settle_time_sec))
             try:
                 alignment_list = []
                 start_time = apy_time.now()
@@ -925,45 +953,52 @@ class System:
                                      'TRIAL'])
 
                 failure_count = 0
-                                     
+
                 for idx, (alt, azi) in enumerate(pos_list):
                     assert not self._stop_loop, 'Thread stop flag is set'
                     self._logger.info('Getting measurement at Alt: ' + str(alt)
                                       + ' Az: ' + str(azi) + '.')
 
                     if not self._stop_loop:
-                      self.mount.move_to_alt_az(alt, azi, rate_control=rate_control, tolerance_deg=0.01, block=False)
+                        self.mount.move_to_alt_az(
+                            alt, azi, rate_control=rate_control, tolerance_deg=0.01, block=False)
 
                     # Wait for mount to settle:
-                    self._logger.info('Waiting '+str(settle_time_sec)+' seconds for mount to settle.')
-                    waited_time = 0 # sec
-                    check_period = 0.001 # sec
+                    self._logger.info(
+                        'Waiting '+str(settle_time_sec)+' seconds for mount to settle.')
+                    waited_time = 0  # sec
+                    check_period = 0.001  # sec
                     while waited_time < settle_time_sec and not self._stop_loop:
                         sleep(check_period)
                         waited_time += check_period
-                    
-                    for trial in range(0,max_trials+1):
+
+                    for trial in range(0, max_trials+1):
                         assert not self._stop_loop, 'Thread stop flag is set'
-                        self._logger.info('trial ' + str(trial) + ' at Alt: ' + str(alt) + ' Az: ' + str(azi))
+                        self._logger.info(
+                            'trial ' + str(trial) + ' at Alt: ' + str(alt) + ' Az: ' + str(azi))
                         img = self.star_camera.get_new_image()
                         timestamp = apy_time.now()
                         # TODO: Test
-                        fov_estimate = self.star_camera.plate_scale * img.shape[1] / 3600
-                        self._logger.debug('FOV estimate: ' + str(fov_estimate))
-                        solution = self.tetra3.solve_from_image(img, 
-                            fov_estimate=fov_estimate, 
-                            sigma=4, 
-                            filtsize=21, 
-                            sigma_mode='global_root_square', 
-                            pattern_checking_stars=10,
-                            fov_max_error=1,  # deg
-                        )
+                        fov_estimate = self.star_camera.plate_scale * \
+                            img.shape[1] / 3600
+                        self._logger.debug(
+                            'FOV estimate: ' + str(fov_estimate))
+                        solution = self.tetra3.solve_from_image(img,
+                                                                fov_estimate=fov_estimate,
+                                                                sigma=4,
+                                                                filtsize=21,
+                                                                sigma_mode='global_root_square',
+                                                                pattern_checking_stars=10,
+                                                                fov_max_error=1,  # deg
+                                                                )
                         self._logger.debug('TIME:  ' + timestamp.iso)
                         self._logger.info('Solution: ' + str(solution))
                         #self._logger.debug('Solution: ' + str(solution))
                         # Save image
                         tiff_write(self.data_folder / (start_time.strftime('%Y-%m-%dT%H%M%S')
-                                                       + '_Alt' + str(alt) + '_Azi' + str(azi)
+                                                       + '_Alt' +
+                                                       str(alt) +
+                                                       '_Azi' + str(azi)
                                                        + '_Try' + str(trial+1) + '.tiff'), img)
                         # Save result to logfile
                         with open(data_file, 'a') as file:
@@ -973,20 +1008,24 @@ class System:
                                               trial + 1))
                             writer.writerow(data)
                         if solution['RA'] is not None:
-                            alignment_list.append((solution['RA'], solution['Dec'], timestamp, alt, azi))
+                            alignment_list.append(
+                                (solution['RA'], solution['Dec'], timestamp, alt, azi))
                             break
                         elif trial < max_trials:
                             self._logger.debug('Failed attempt '+str(trial+1))
                         else:
-                            self._logger.info('Failed attempt '+str(trial+1)+', skipping...')
+                            self._logger.info(
+                                'Failed attempt '+str(trial+1)+', skipping...')
                             failure_count += 1
                             if failure_count > self._auto_align_tolerate_failures:
-                                self._logger.warning('Failed to solve at '+str(failure_count)+' positions. Stopping auto-alignment.', exc_info=True)
+                                self._logger.warning(
+                                    'Failed to solve at '+str(failure_count)+' positions. Stopping auto-alignment.', exc_info=True)
                                 self._stop_loop = True
 
-                #self.mount.move_home(block=False)
+                # self.mount.move_home(block=False)
                 # Set the alignment!
-                assert len(alignment_list) > 0, 'Did not identify any star patterns'
+                assert len(
+                    alignment_list) > 0, 'Did not identify any star patterns'
                 self.alignment.set_alignment_from_observations(alignment_list)
             except AssertionError:
                 self._logger.warning('Auto-align failed.', exc_info=True)
@@ -997,7 +1036,6 @@ class System:
         self._thread = Thread(target=run)
         self._stop_loop = False
         self._thread.start()
-        
 
     def get_alt_az_of_target(self, times=None, time_step=.1):
         """Get the corrected altitude and azimuth angles and rates of the target from the current
@@ -1026,7 +1064,8 @@ class System:
 
         if isinstance(self.target.target_object, sgp4.EarthSatellite):
             pos = self.target.get_target_itrf_xyz(times)
-            alt_az = self.alignment.get_com_altaz_from_itrf_xyz(pos, position=True)
+            alt_az = self.alignment.get_com_altaz_from_itrf_xyz(
+                pos, position=True)
         elif isinstance(self.target.target_object, apy_coord.SkyCoord):
             vec = self.target.get_target_itrf_xyz(times)
             alt_az = self.alignment.get_com_altaz_from_itrf_xyz(vec)
@@ -1034,8 +1073,10 @@ class System:
             enu_altaz = self.target.target_object.project_ephem(times)
             alt_az = self.alignment.get_com_altaz_from_enu_altaz(enu_altaz)
         else:
-            raise RuntimeError('The target is of unknown type! (%s)' % type(self.target.target_object))
-        angvel_alt_az = (((alt_az[:, 1:] - alt_az[:, :-1] + 180) % 360) - 180) / dt
+            raise RuntimeError('The target is of unknown type! (%s)' %
+                               type(self.target.target_object))
+        angvel_alt_az = (
+            ((alt_az[:, 1:] - alt_az[:, :-1] + 180) % 360) - 180) / dt
 
         if single_time:
             return alt_az[:, 0], angvel_alt_az[:, 0]
@@ -1066,8 +1107,10 @@ class System:
             enu_altaz = self.target.target_object.project_ephem(times)
             itrf_xyz = self.alignment.get_itrf_xyz_from_enu_altaz(enu_altaz)
         else:
-            raise RuntimeError('The target is of unknown type! (%s)' % type(self.target.target_object))
+            raise RuntimeError('The target is of unknown type! (%s)' %
+                               type(self.target.target_object))
         itrf_xyz /= np.linalg.norm(itrf_xyz, axis=0, keepdims=True)
+
         return itrf_xyz
 
     def slew_to_target(self, time=None, block=True, rate_control=True):
@@ -1091,7 +1134,8 @@ class System:
         else:
             alt_azi = self.get_alt_az_of_target(time[0])[0]
 
-        self.mount.move_to_alt_az(alt_azi[0], alt_azi[1], tolerance_deg=5, block=block)
+        self.mount.move_to_alt_az(
+            alt_azi[0], alt_azi[1], tolerance_deg=5, block=block)
 
     def start_tracking(self):
         """Track the target, using closed loop feedback if defined.
@@ -1100,12 +1144,37 @@ class System:
         manually call System.stop_tracking().
         """
         assert self.mount is not None, 'No mount'
-        assert self.target.has_target, 'No target set'
+        if self.system_demo_bool == False:
+            assert self.target.has_target, 'No target set'
         assert self.alignment.is_aligned, 'Telescope not aligned'
         assert self.alignment.is_located, 'No telescope location'
         assert self.is_init, 'System not initialized'
         assert not self.is_busy, 'System is busy'
         self._logger.info('Starting closed loop tracking')
+        self.control_loop_thread.start()
+
+    def sys_demo_bool_True(self):
+        self.system_demo_bool = True
+        self.control_loop_thread.demo_bool_True()
+
+    def sys_demo_bool_False(self):
+        self.system_demo_bool = False
+        self.control_loop_thread.demo_bool_False()
+
+    # ocean here, demo tracking v2
+    def start_demo_tracking_v2(self):
+        """Hopefully it will track bright spot, using closed loop feedback.
+
+        HOPIUM MAX.
+        """
+        assert self.mount is not None, 'No mount'
+        #assert self.target.has_target, 'No target set'
+        assert self.alignment.is_aligned, 'Telescope not aligned'
+        assert self.alignment.is_located, 'No telescope location'
+        assert self.is_init, 'System not initialized'
+        assert not self.is_busy, 'System is busy'
+        self._logger.info('Starting DEMO closed loop tracking')
+        
         self.control_loop_thread.start()
 
     def stop(self):
@@ -1114,13 +1183,15 @@ class System:
         try:
             self.control_loop_thread.stop()
         except BaseException:
-            self._logger.warning('Failed to stop control loop thread.', exc_info=True)
+            self._logger.warning(
+                'Failed to stop control loop thread.', exc_info=True)
         if self._thread is not None and self._thread.is_alive:
             self._stop_loop = True
             try:
                 self._thread.join()
             except BaseException:
-                self._logger.warning('Failed to join system worker thread.', exc_info=True)
+                self._logger.warning(
+                    'Failed to join system worker thread.', exc_info=True)
         if self.mount is not None and self.mount.is_init:
             self._logger.info('Stopping mount')
             try:
@@ -1149,15 +1220,18 @@ class System:
 
         self._logger.info('Starting alignment test, 2x20 positions.')
         pos_LH = [(53, -16), (71, -23), (80, -9), (44, -114), (56, -135), (50, -100), (65, -65),
-                  (26, -72), (23, -30), (59, -37), (35, -177), (47, -142), (20, -86), (38, -79),
+                  (26, -72), (23, -30), (59, -37), (35, -
+                                                    177), (47, -142), (20, -86), (38, -79),
                   (41, -51), (77, -2), (74, -170), (29, -44), (62, -156), (68, -163)]
         pos_RH = [(80, 166), (53, 138), (56, 54), (68, 180), (35, 26), (23, 33), (44, 75),
-                  (38, 152), (65, 19), (50, 159), (32, 82), (26, 96), (41, 110), (29, 89),
+                  (38, 152), (65, 19), (50, 159), (32,
+                                                   82), (26, 96), (41, 110), (29, 89),
                   (20, 103), (77, 5), (74, 47), (59, 117), (47, 173), (71, 124)]
 
         test_time = apy_time.now()
         # Create datafile
-        data_filename = Path(test_time.strftime('%Y-%m-%dT%H%M%S')+'_System_align_test_hemisp.csv')
+        data_filename = Path(test_time.strftime(
+            '%Y-%m-%dT%H%M%S')+'_System_align_test_hemisp.csv')
         data_file = self.data_folder / data_filename
         if data_file.exists():
             self._log_debug('File name clash. Iterating...')
@@ -1190,17 +1264,21 @@ class System:
                 self._logger.info('Getting measurement at Alt: ' + str(alt) + ' Az: ' + str(azi)
                                   + ' ENU.')
                 altaz = self.alignment.get_com_altaz_from_enu_altaz((alt, azi))
-                self.mount.move_to_alt_az(*altaz, rate_control=rate_control, block=True)
+                self.mount.move_to_alt_az(
+                    *altaz, rate_control=rate_control, block=True)
                 for trial in range(max_trials):
                     img = self.star_camera.get_next_image()
                     timestamp = apy_time.now()
                     # TODO: Test
-                    fov_estimate = self.star_camera.plate_scale * img.shape[1] / 3600
-                    solution = self.tetra3.solve_from_image(img, fov_estimate=fov_estimate, fov_max_error=.1)
+                    fov_estimate = self.star_camera.plate_scale * \
+                        img.shape[1] / 3600
+                    solution = self.tetra3.solve_from_image(
+                        img, fov_estimate=fov_estimate, fov_max_error=.1)
                     self._logger.debug('TIME:  ' + timestamp.iso)
                     # Save image
                     tiff_write(self.data_folder / (test_time.strftime('%Y-%m-%dT%H%M%S') + '_Alt'
-                                                   + str(alt) + '_Azi' + str(azi) + '_Try'
+                                                   + str(alt) + '_Azi' +
+                                                   str(azi) + '_Try'
                                                    + str(trial + 1) + '.tiff'), img)
                     if solution['RA'] is not None:
                         # ra,dec,time to ITRF
@@ -1305,6 +1383,7 @@ class Alignment:
         debug_folder (pathlib.Path, optional): The folder for debug logging. If None (the default)
             the folder *pypogs*/debug will be used/created.
     """
+
     def __init__(self, data_folder=None, debug_folder=None):
         """Create Alignment instance. See class documentation."""
         # Logger setup
@@ -1324,7 +1403,8 @@ class Alignment:
             fh = logging.FileHandler(self.debug_folder / 'pypogs.txt')
             fh.setLevel(logging.DEBUG)
             # Format and add
-            formatter = logging.Formatter('%(asctime)s:%(name)s-%(levelname)s: %(message)s')
+            formatter = logging.Formatter(
+                '%(asctime)s:%(name)s-%(levelname)s: %(message)s')
             fh.setFormatter(formatter)
             ch.setFormatter(formatter)
             self._logger.addHandler(fh)
@@ -1332,10 +1412,10 @@ class Alignment:
 
         self._logger.debug('Alignment constructor called')
         # Alignment points
-        
+
         self._alignment_file_header = ['Ma', 'Mb', 'Mc', 'Alt0', 'Cvd', 'Cnp', 'Mz_std', 'My_std',
-                                'Alt0_std', 'Cvd_std', 'Cnp_std']
-        
+                                       'Alt0_std', 'Cvd_std', 'Cnp_std']
+
         # Data folder setup
         self._data_folder = None
         if data_folder is None:
@@ -1422,15 +1502,18 @@ class Alignment:
         """
         self._logger.debug('Got set location with lat=' + str(lat) + ' lon=' + str(lon)
                            + ' height=' + str(height))
-        self._location = apy_coord.EarthLocation.from_geodetic(lat=lat, lon=lon, height=height)
+        self._location = apy_coord.EarthLocation.from_geodetic(
+            lat=lat, lon=lon, height=height)
         self._logger.debug('Location set to: '+str(self._location))
         # Set ITRF-ENU transformations for new location
         self._set_mx_enu_itrf()
 
     def set_location_itrf(self, x, y, z):
         """Set the location via ITRF position x (m), y (m), z (m)."""
-        self._logger.debug('Got set location with x='+str(x)+' y='+str(y)+' z='+str(z))
-        self._location = apy_coord.EarthLocation.from_geocentric(x, y, z, unit=apy_unit.m)
+        self._logger.debug('Got set location with x=' +
+                           str(x)+' y='+str(y)+' z='+str(z))
+        self._location = apy_coord.EarthLocation.from_geocentric(
+            x, y, z, unit=apy_unit.m)
         self._logger.debug('Location set to: '+str(self._location))
         # Set ITRF-ENU transformations for new location
         self._set_mx_enu_itrf()
@@ -1443,8 +1526,10 @@ class Alignment:
         (lat, lon) = np.deg2rad(self.get_location_lat_lon_height()[:2])
         self._logger.debug('At lat='+str(lat)+' lon='+str(lon)+' (rad)')
         # Find basis vectors
-        up = np.asarray([np.cos(lat)*np.cos(lon), np.cos(lat)*np.sin(lon), np.sin(lat)])
-        north = np.asarray([-np.sin(lat)*np.cos(lon), -np.sin(lat)*np.sin(lon), np.cos(lat)])
+        up = np.asarray([np.cos(lat)*np.cos(lon), np.cos(lat)
+                        * np.sin(lon), np.sin(lat)])
+        north = np.asarray([-np.sin(lat)*np.cos(lon), -
+                           np.sin(lat)*np.sin(lon), np.cos(lat)])
         east = np.asarray([-np.sin(lon), np.cos(lon), 0])
         # Calculate matrices
         self._MX_itrf2enu = np.vstack((east, north, up))
@@ -1573,7 +1658,12 @@ class Alignment:
         alt = np.arcsin(mnt_xyz[2, :])
         azi = np.arctan2(mnt_xyz[0, :], mnt_xyz[1, :])
         # radians to degrees
+        # self._logger.debug('ALT RADIANS: ' + str(alt))
+        # self._logger.debug('AZI RADIANS: ' + str(azi))
+        # self._logger.debug('VSTACK DEGREES: ' + str(np.rad2deg(np.vstack((alt, azi)))))
+        # self._logger.debug('MNT DEGREES: ' + str(np.rad2deg(np.vstack((alt, azi))).squeeze()))
         return np.rad2deg(np.vstack((alt, azi))).squeeze()
+
 
     def get_mnt_altaz_from_com_altaz(self, com_altaz):
         """Transform the given COM AltAz coordinate to MNT AltAz.
@@ -1680,7 +1770,8 @@ class Alignment:
         Returns:
             numpy.ndarray: Shape (2,) if single input, shape (2,N) if array input.
         """
-        mnt_altaz = self.get_mnt_altaz_from_itrf_xyz(itrf_xyz, position=position)
+        mnt_altaz = self.get_mnt_altaz_from_itrf_xyz(
+            itrf_xyz, position=position)
         return self.get_com_altaz_from_mnt_altaz(mnt_altaz)
 
     def set_alignment_from_observations(self, obs_data, alt0=None, Cvd=None, Cnp=None):
@@ -1713,7 +1804,8 @@ class Alignment:
             'Observation must be tuple with [RA,DEC,TIME,ALT,AZ]'
         assert all(isinstance(obs[2], apy_time) for obs in obs_data), \
             'Timestamp must be astropy object'
-        self._logger.info('Calculating alignment and corrections from observations.')
+        self._logger.info(
+            'Calculating alignment and corrections from observations.')
         # Check which have data
         valid = np.fromiter((k[0] is not None for k in obs_data), bool)
         self._logger.debug('Valid: ' + str(valid))
@@ -1749,7 +1841,8 @@ class Alignment:
         Mz = np.sum(Mz_obs, axis=1)
         Mz = Mz / np.linalg.norm(Mz)
         # Find residuals
-        Mz_sstd = np.sqrt(np.sum(np.rad2deg(np.arccos(np.dot(Mz, Mz_obs)))**2) / (n - 1))
+        Mz_sstd = np.sqrt(
+            np.sum(np.rad2deg(np.arccos(np.dot(Mz, Mz_obs)))**2) / (n - 1))
         self._logger.info('Solved MNT c axis: ' + str(np.round(Mz, 3).squeeze()) + ' | RMS: '
                           + str(round(Mz_sstd * 3600, 1)) + ' asec (n=' + str(n) + ').')
         # 2) Calculate true alt and vector projected into plane perp to c for observations
@@ -1757,9 +1850,12 @@ class Alignment:
         V_perp = np.zeros((3, len(valid)))
         for obs in range(len(valid)):
             if valid[obs]:
-                alt_meas[obs] = 90 - np.rad2deg(np.arccos(np.dot(Mz, obs_in_itrf[:, obs])))
-                V_perp[:, obs] = obs_in_itrf[:, obs] - np.dot(obs_in_itrf[:, obs], Mz) * Mz
-                V_perp[:, obs] = V_perp[:, obs] / np.linalg.norm(V_perp[:, obs])
+                alt_meas[obs] = 90 - \
+                    np.rad2deg(np.arccos(np.dot(Mz, obs_in_itrf[:, obs])))
+                V_perp[:, obs] = obs_in_itrf[:, obs] - \
+                    np.dot(obs_in_itrf[:, obs], Mz) * Mz
+                V_perp[:, obs] = V_perp[:, obs] / \
+                    np.linalg.norm(V_perp[:, obs])
         self._logger.debug('Measured MNT Alt: ' + str(alt_meas))
         self._logger.debug('Perpendicular vector: ' + str(V_perp))
         # 3) Calculate vertical deflection
@@ -1769,7 +1865,7 @@ class Alignment:
             for pos in azi_pairs:
                 if np.all(valid[pos]):
                     Cvd_obs[n] = (obs_data[pos[0]][3] - obs_data[pos[1]][3]) \
-                                / (alt_meas[pos[0]] - alt_meas[pos[1]]) - 1
+                        / (alt_meas[pos[0]] - alt_meas[pos[1]]) - 1
                     n += 1
             assert n > 1, 'Less than two valid stacked pairs'
             Cvd_obs = Cvd_obs[:n]  # Trim the end!
@@ -1780,7 +1876,8 @@ class Alignment:
             self._logger.info('Solved Vert. Defl.: ' + str(round(Cvd * 100, 3)) + '% | RMS: '
                               + str(round(Cvd_sstd * 100, 3)) + '% (n=' + str(n) + ').')
         else:
-            self._logger.info('Given Vert. Defl.: ' + str(np.round(Cvd * 100, 3)) + '%.')
+            self._logger.info('Given Vert. Defl.: ' +
+                              str(np.round(Cvd * 100, 3)) + '%.')
             Cvd_sstd = -1
         # 4) Find alt offset
         if alt0 is None:
@@ -1798,7 +1895,8 @@ class Alignment:
             self._logger.info('Solved Alt. Zero: ' + str(round(alt0, 4)) + DEG + ' | RMS: '
                               + str(round(alt0_sstd, 4)) + DEG + ' (n=' + str(n) + ').')
         else:
-            self._logger.info('Given Alt. Zero: ' + str(round(alt0, 4)) + DEG + '.')
+            self._logger.info('Given Alt. Zero: ' +
+                              str(round(alt0, 4)) + DEG + '.')
             alt0_sstd = -1
         # 5) Find nonperpendicularity
         if Cnp is None:
@@ -1819,12 +1917,14 @@ class Alignment:
             self._logger.info('Solved Nonperp.: ' + str(round(Cnp, 4)) + DEG + ' | RMS: '
                               + str(round(Cnp_sstd, 4)) + DEG + ' (n=' + str(n) + ').')
         else:
-            self._logger.info('Given Nonperp.: ' + str(round(Cnp, 4)) + DEG + '.')
+            self._logger.info('Given Nonperp.: ' +
+                              str(round(Cnp, 4)) + DEG + '.')
             Cnp_sstd = -1
         # 6) Backcalculate azi correction
         azi_backcalc = np.zeros((len(valid),))
         for obs in range(len(valid)):
-            azi_backcalc[obs] = obs_data[obs][4] + Cnp * np.tan(np.deg2rad(alt_meas[obs]))
+            azi_backcalc[obs] = obs_data[obs][4] + \
+                Cnp * np.tan(np.deg2rad(alt_meas[obs]))
         self._logger.debug('Backcalculated MNT Azi: ' + str(azi_backcalc))
         # 7) Rotate around azi axis to find y
         My_obs = np.zeros((3, len(valid)))
@@ -1841,12 +1941,14 @@ class Alignment:
         My = np.sum(My_obs, axis=1)
         My = My / np.linalg.norm(My)
         # Find residuals
-        My_sstd = np.sqrt(np.sum(np.rad2deg(np.arccos(np.dot(My, My_obs)))**2) / (n - 1))
+        My_sstd = np.sqrt(
+            np.sum(np.rad2deg(np.arccos(np.dot(My, My_obs)))**2) / (n - 1))
         self._logger.info('Solved MNT b axis: ' + str(np.round(My, 3).squeeze()) + ' | RMS: '
                           + str(round(My_sstd * 3600, 1)) + ' asec (n=' + str(n) + ').')
         # 8) Cross product for last axis
         Mx = np.cross(My, Mz)
-        self._logger.info('MNT b cross c gives a: ' + str(np.round(Mx, 3).squeeze()) + '.')
+        self._logger.info('MNT b cross c gives a: ' +
+                          str(np.round(Mx, 3).squeeze()) + '.')
         # Set the values
         self._MX_itrf2mnt = np.vstack((Mx, My, Mz))
         self._MX_mnt2itrf = self._MX_itrf2mnt.transpose()
@@ -1899,28 +2001,36 @@ class Alignment:
         self._Alt0 = alt0
         self._Cvd = Cvd
         self._Cnp = Cnp
-        
+
     def get_alignment_data_form_file(self, alignment_from_obs_filename):
-        self._logger.info('Loading alignment file: '+alignment_from_obs_filename)
+        self._logger.info('Loading alignment file: ' +
+                          alignment_from_obs_filename)
         alignment_file = open(alignment_from_obs_filename)
         alignment_file_reader = csv_reader(alignment_file)
         header = next(alignment_file_reader)
         self._logger.debug('Alignment file header: ' + str(header))
-        assert header == self._alignment_file_header, 'Unrecognized CSV header: '+str(header)
+        assert header == self._alignment_file_header, 'Unrecognized CSV header: ' + \
+            str(header)
         entry = None
         for idx, row in enumerate(alignment_file_reader):
-          if len(row)>0 and len(row[0])>0:
-            entry = row
-            break
-        assert entry is not None, 'Failed to read alignment file'+str(alignment_from_obs_filename)
-        Ma = [float(item) for item in entry[0].replace('[','').replace(']','').split()]
-        Mb = [float(item) for item in entry[1].replace('[','').replace(']','').split()]
-        Mc = [float(item) for item in entry[2].replace('[','').replace(']','').split()]
+            if len(row) > 0 and len(row[0]) > 0:
+                entry = row
+                break
+        assert entry is not None, 'Failed to read alignment file' + \
+            str(alignment_from_obs_filename)
+        Ma = [float(item) for item in entry[0].replace(
+            '[', '').replace(']', '').split()]
+        Mb = [float(item) for item in entry[1].replace(
+            '[', '').replace(']', '').split()]
+        Mc = [float(item) for item in entry[2].replace(
+            '[', '').replace(']', '').split()]
         alt0 = float(entry[3])
         Cvd = float(entry[4])
         Cnp = float(entry[5])
-        self._logger.info('Loaded alignment data:'+str((Ma,Mb,Mc,alt0,Cvd,Cnp)))
-        self.set_alignment_from_alignment_data(Ma, Mb, Mc, alt0=alt0, Cvd=Cvd, Cnp=Cnp)
+        self._logger.info('Loaded alignment data:' +
+                          str((Ma, Mb, Mc, alt0, Cvd, Cnp)))
+        self.set_alignment_from_alignment_data(
+            Ma, Mb, Mc, alt0=alt0, Cvd=Cvd, Cnp=Cnp)
 
 
 class Target:
@@ -1950,6 +2060,7 @@ class Target:
     _allowed_types = (apy_coord.SkyCoord, sgp4.EarthSatellite, Ephem)
 
     def __init__(self):
+        self.target_demo_bool = False
         """Create Target instance. See class documentation."""
         self._target = None
         self._source = None
@@ -1958,8 +2069,9 @@ class Target:
 
         self._tle_line1 = None
         self._tle_line2 = None
-        self._skyfield_ts = sf_api.Loader(_system_data_dir, expire=False).timescale()
-        
+        self._skyfield_ts = sf_api.Loader(
+            _system_data_dir, expire=False).timescale()
+
         self._ephem = None
 
     class Sources:
@@ -1986,19 +2098,26 @@ class Target:
             assert isinstance(target, self._allowed_types), \
                 'Must be None or of type ' + str(self._allowed_types)
             self._target = target
-            
+
     @property
     def source(self):
         """ Index of selected source of target coordinates """
         return self._source
-        
+
+    def tar_demo_bool_True(self):
+        self.target_demo_bool = True
+
+    def tar_demo_bool_False(self):
+        self.target_demo_bool = False
+
     def set_source(self, target_source_name):
         """ Sets source of target coordinates 
-        
+
         Args:
             target_source_name (string): source of target coordinates ('TLE', 'RADEC', 'EPHEM')
         """
-        assert hasattr(self.Sources, target_source_name), 'Invalid target source: "%s"' % target_source_name
+        assert hasattr(
+            self.Sources, target_source_name), 'Invalid target source: "%s"' % target_source_name
         self._source = getattr(self.Sources, target_source_name)
 
     def set_target_from_ra_dec(self, ra, dec, start_time=None, end_time=None):
@@ -2012,33 +2131,35 @@ class Target:
         """
         self.target_object = apy_coord.SkyCoord(ra, dec, unit='deg')
         self.set_start_end_time(start_time, end_time)
-        
+
     def get_tle_from_sat_id(self, sat_id):
         """Fetches TLE for a satellite specified by Satellite Catalog ID.
-        
+
         Args:
             sat_id (unsigned int):  Satellite Catalog ID number.        
         """
         try:
             tle_from_celestrak = fetch_tle_from_celestrak(sat_id)
-            tle = (tle_from_celestrak[1], tle_from_celestrak[2], tle_from_celestrak[0]) #reorder
+            # reorder
+            tle = (tle_from_celestrak[1],
+                   tle_from_celestrak[2], tle_from_celestrak[0])
         except IndexError:
             tle = None
         return tle
 
     def get_and_set_tle_from_sat_id(self, sat_id):
         """Fetches TLE for a satellite specified by Satellite Catalog ID and sets TLE and target.
-        
+
         Args:
             sat_id (unsigned int):  Satellite Catalog ID number.        
         """
         tle = self.get_tle_from_sat_id(sat_id)
         if tle is not None:
             self.set_target_from_tle(tle)
-            
+
     def get_ephem(self, obj_id, lat, lon, height):
         """Fetches and pre-caches ephemeris data from JPL Horizons API
-        
+
         Args:
             obj_id (signed int):  NAIF object ID number.
             lat  (float):     Site North latitude (degrees)
@@ -2048,7 +2169,8 @@ class Target:
         utc_now = apy_time.now()
         utc_tomorrow = utc_now + TimeDelta(1, format='jd')
         time_step_minutes = 30
-        self._ephem = Ephem(obj_id, utc_now.strftime('%Y-%m-%d %H:00:00'), utc_tomorrow.strftime('%Y-%m-%d %H:00:00'), time_step_minutes, lat, lon, height)
+        self._ephem = Ephem(obj_id, utc_now.strftime('%Y-%m-%d %H:00:00'),
+                            utc_tomorrow.strftime('%Y-%m-%d %H:00:00'), time_step_minutes, lat, lon, height)
         self.target_object = self._ephem
 
     def set_target_deep_by_name(self, name, start_time=None, end_time=None):
@@ -2122,7 +2244,7 @@ class Target:
         self.start_time = None
         self.end_time = None
 
-    def get_tle_raw(self):
+    def  get_tle_raw(self):
         """Get the TLE of the target.
 
         Returns:
@@ -2144,10 +2266,12 @@ class Target:
         if self._target is None:
             return 'No target'
         elif isinstance(self._target, sgp4.EarthSatellite):
+            #print(self._target)
             return 'Source: TLE #' + str(self._target.model.satnum)
         elif isinstance(self._target, apy_coord.SkyCoord):
             return 'Source: RA:' + str(round(self._target.ra.to_value('deg'), 2)) + DEG \
-                   + ' D:' + str(round(self._target.dec.to_value('deg'), 2)) + DEG
+                   + ' D:' + \
+                str(round(self._target.dec.to_value('deg'), 2)) + DEG
         elif isinstance(self._target, Ephem):
             return 'Source: ephem obj #' + str(self._ephem.obj_id)
 
@@ -2177,22 +2301,23 @@ class Target:
 class StellariumTelescopeServer:
     """StellariumTelescopeServer creates a telescope telemetry and control daemon to 
     serve telescope position data to Stellarium and receives slew commands.
-    
+
     The default hosted server address is localhost (127.0.0.1) port 10001.
-    
+
     See Stellarium documentation for instructions for how to connect to this
     telescope interface as "External software or remote computer".
-    
+
     The StellariumTelescopeServer thread manages TCP connections
     """
+
     def __init__(self, parent, address='127.0.0.1', port=10001, poll_period=0.5, debug_folder=None):
         """Create Server instance. See class documentation."""
-        self._address     = address
-        self._port        = port
-        self._poll_period = poll_period # sec
-        
-        self.parent      = parent
-        
+        self._address = address
+        self._port = port
+        self._poll_period = poll_period  # sec
+
+        self.parent = parent
+
         # Logger setup
         self._debug_folder = None
         if debug_folder is None:
@@ -2210,7 +2335,8 @@ class StellariumTelescopeServer:
             fh = logging.FileHandler(self.debug_folder / 'pypogs.txt')
             fh.setLevel(logging.DEBUG)
             # Format and add
-            formatter = logging.Formatter('%(asctime)s:%(name)s-%(levelname)s: %(message)s')
+            formatter = logging.Formatter(
+                '%(asctime)s:%(name)s-%(levelname)s: %(message)s')
             fh.setFormatter(formatter)
             ch.setFormatter(formatter)
             self._logger.addHandler(fh)
@@ -2218,15 +2344,15 @@ class StellariumTelescopeServer:
 
         # Start of constructor
         self._logger.debug('System constructor called')
-        self._thread    = None
+        self._thread = None
         self._stop_loop = False
-        self._is_init   = False
-        
+        self._is_init = False
+
     @property
     def is_init(self):
         """Indicate whether this thread is active"""
         return self._is_init
-        
+
     @property
     def address(self):
         """This server address"""
@@ -2235,7 +2361,7 @@ class StellariumTelescopeServer:
     @address.setter
     def address(self, address):
         self._address = address
-        
+
     @property
     def port(self):
         """Server port"""
@@ -2244,30 +2370,31 @@ class StellariumTelescopeServer:
     @port.setter
     def port(self, port):
         self._port = port
-        
+
     def start(self, address=None, port=None, poll_period=None):
-        self._address     = address if address is not None else self._address
-        self._port        = port if port is not None else self._port
-        self._poll_period = poll_period if poll_period is not None else self._poll_period # sec
-        self._thread      = None
-    
+        self._address = address if address is not None else self._address
+        self._port = port if port is not None else self._port
+        self._poll_period = poll_period if poll_period is not None else self._poll_period  # sec
+        self._thread = None
+
         def run():
-            if self.parent.mount is not None and self.parent.mount.model == 'ASCOM':  
+            if self.parent.mount is not None and self.parent.mount.model == 'ASCOM':
                 import pythoncom
                 pythoncom.CoInitialize()
-        
+
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind((self._address, self._port))
                 s.settimeout(0.5)
-                
+
                 # WAITING FOR CONNECTION LOOP
                 s.listen()
-                self._logger.info('Listening for connection on %s port %i' % (self._address, self._port))
+                self._logger.info('Listening for connection on %s port %i' % (
+                    self._address, self._port))
                 while not self._stop_loop and self.parent.is_init:
                     try:
                         conn, addr = s.accept()
                         conn.settimeout(self._poll_period)
-                        
+
                         # CONNECTED LOOP
                         self._logger.info('New connection from %s:%d' % addr)
                         while not self._stop_loop and self.parent.is_init:
@@ -2275,66 +2402,79 @@ class StellariumTelescopeServer:
                                 try:
                                     data = conn.recv(1024)
                                     if data:
-                                        #print('Received',len(data),'bytes:',data)
-                                        ra_raw  = int.from_bytes(data[12:16], byteorder='little', signed=False)
-                                        dec_raw = int.from_bytes(data[16:20], byteorder='little', signed=True)
-                                        ra_goal = float(ra_raw)*180/2147483648  # deg
-                                        dec_goal = float(dec_raw)*90/1073741824 # deg
-                                        
+                                        # print('Received',len(data),'bytes:',data)
+                                        ra_raw = int.from_bytes(
+                                            data[12:16], byteorder='little', signed=False)
+                                        dec_raw = int.from_bytes(
+                                            data[16:20], byteorder='little', signed=True)
+                                        ra_goal = float(
+                                            ra_raw)*180/2147483648  # deg
+                                        dec_goal = float(
+                                            dec_raw)*90/1073741824  # deg
+
                                         # ra,dec,time to ITRF
                                         #c = apy_coord.SkyCoord(ra_goal, dec_goal, unit='deg').transform_to(apy_coord.ITRS)
-                                        #(alt_goal, azi_goal) = self.parent.alignment.get_enu_altaz_from_itrf_xyz(
+                                        # (alt_goal, azi_goal) = self.parent.alignment.get_enu_altaz_from_itrf_xyz(
                                         #  [c.x.value, c.y.value, c.z.value]
-                                        #)
-                                        self._logger.info('Received go-to instruction to RA: %0.5f deg, Dec: %0.5f deg' % (ra_goal, dec_goal))
+                                        # )
+                                        self._logger.info(
+                                            'Received go-to instruction to RA: %0.5f deg, Dec: %0.5f deg' % (ra_goal, dec_goal))
                                         if self.parent.mount.is_init:
-                                            self.parent.target.set_target_from_ra_dec(ra_goal, dec_goal)
-                                            self.parent.target.set_source('RADEC')
-                                            itrf_xyz  = self.parent.get_itrf_direction_of_target()
-                                            enu_altaz = self.parent.alignment.get_enu_altaz_from_itrf_xyz(itrf_xyz)
+                                            self.parent.target.set_target_from_ra_dec(
+                                                ra_goal, dec_goal)
+                                            self.parent.target.set_source(
+                                                'RADEC')
+                                            itrf_xyz = self.parent.get_itrf_direction_of_target()
+                                            enu_altaz = self.parent.alignment.get_enu_altaz_from_itrf_xyz(
+                                                itrf_xyz)
                                             if not self.parent.is_busy:
                                                 try:
-                                                    self.parent.mount.move_to_alt_az(*enu_altaz, block=False)
+                                                    self.parent.mount.move_to_alt_az(
+                                                        *enu_altaz, block=False)
                                                 except BaseException:
-                                                    self._logger.warning('Failed to command mount to requested coordinates.', exc_info=True)
-                                                
+                                                    self._logger.warning(
+                                                        'Failed to command mount to requested coordinates.', exc_info=True)
+
                                     else:
                                         self._logger.info('Disconnected')
-                                        self._logger.info('Listening for connection...')
-                                        break 
+                                        self._logger.info(
+                                            'Listening for connection...')
+                                        break
                                 except socket.timeout:  # (no data)
                                     pass
                                 except KeyboardInterrupt:
                                     self._stop_loop = True
                                     break
 
-                                mount_alt = self.parent.mount._state_cache['alt'] 
-                                mount_azi  = self.parent.mount._state_cache['azi'] 
+                                mount_alt = self.parent.mount._state_cache['alt']
+                                mount_azi = self.parent.mount._state_cache['azi']
                                 mount_ra, mount_dec = (0, 0)
                                 icrs = apy_coord.ICRS()
                                 c = apy_coord.AltAz(
-                                  alt = mount_alt*apy_unit.deg, 
-                                  az  = mount_azi*apy_unit.deg, 
-                                  obstime = apy_time.now(),
-                                  location = self.parent.alignment._location
+                                    alt=mount_alt*apy_unit.deg,
+                                    az=mount_azi*apy_unit.deg,
+                                    obstime=apy_time.now(),
+                                    location=self.parent.alignment._location
                                 ).transform_to(icrs)
-                                (mount_ra, mount_dec) = (c.ra.value, c.dec.value)
+                                (mount_ra, mount_dec) = (
+                                    c.ra.value, c.dec.value)
                                 mount_ra = (mount_ra + 360) % 360
                                 #print(mount_ra, mount_dec)
-                                position_report = struct.pack('<hhqLll', 24, 0, 0, int(mount_ra/180*2147483648), int(mount_dec/90*1073741824), 0) #ra, dec in degrees
+                                position_report = struct.pack('<hhqLll', 24, 0, 0, int(
+                                    mount_ra/180*2147483648), int(mount_dec/90*1073741824), 0)  # ra, dec in degrees
                                 conn.send(position_report)
-                            
+
                     except (socket.timeout, ConnectionResetError, ConnectionAbortedError):  # (no connection)
                         pass
                     except KeyboardInterrupt:
                         self._stop_loop = True
                         break
-    
+
         self._thread = Thread(target=run)
         self._stop_loop = False
         self._thread.start()
         self._is_init = True
-    
+
     def stop(self):
         self._logger.info('Stopping telescope server')
         if self._thread is not None:
@@ -2342,21 +2482,23 @@ class StellariumTelescopeServer:
             try:
                 self._thread.join()
             except BaseException:
-                self._logger.warning('Failed to join system worker thread.', exc_info=True)
-    
-    
+                self._logger.warning(
+                    'Failed to join system worker thread.', exc_info=True)
+
+
 class TargetServer:
     """TargetServer creates a target daemon to receive targeting (TLE) data from
     an external application such as SkyTrack.
-    
+
     The default hosted server address is localhost (127.0.0.1) port 12345.
     """
+
     def __init__(self, parent, address='127.0.0.1', port=12345, poll_period=0.5, debug_folder=None):
         """Create Server instance. See class documentation."""
-        self._address     = address
-        self._port        = port
-        self._poll_period = poll_period # sec
-        
+        self._address = address
+        self._port = port
+        self._poll_period = poll_period  # sec
+
         # Logger setup
         self._debug_folder = None
         if debug_folder is None:
@@ -2374,7 +2516,8 @@ class TargetServer:
             fh = logging.FileHandler(self.debug_folder / 'pypogs.txt')
             fh.setLevel(logging.DEBUG)
             # Format and add
-            formatter = logging.Formatter('%(asctime)s:%(name)s-%(levelname)s: %(message)s')
+            formatter = logging.Formatter(
+                '%(asctime)s:%(name)s-%(levelname)s: %(message)s')
             fh.setFormatter(formatter)
             ch.setFormatter(formatter)
             self._logger.addHandler(fh)
@@ -2382,16 +2525,16 @@ class TargetServer:
 
         # Start of constructor
         self._logger.debug('System constructor called')
-        self._thread    = None
+        self._thread = None
         self._stop_loop = False
-        self._is_init   = False
-        self.parent     = parent
-        
+        self._is_init = False
+        self.parent = parent
+
     @property
     def is_init(self):
         """Indicate whether this thread is active"""
         return self._is_init
-        
+
     @property
     def address(self):
         """This server address"""
@@ -2400,7 +2543,7 @@ class TargetServer:
     @address.setter
     def address(self, address):
         self._address = address
-        
+
     @property
     def port(self):
         """Server port"""
@@ -2409,49 +2552,57 @@ class TargetServer:
     @port.setter
     def port(self, port):
         self._port = port
-        
+
     def start(self, address=None, port=None, poll_period=None):
-        self._address     = address if address is not None else self._address
-        self._port        = port if port is not None else self._port
-        self._poll_period = poll_period if poll_period is not None else self._poll_period # sec
-        self._thread      = None
-    
-        def run():        
+        self._address = address if address is not None else self._address
+        self._port = port if port is not None else self._port
+        self._poll_period = poll_period if poll_period is not None else self._poll_period  # sec
+        self._thread = None
+
+        def run():
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.bind((self._address, self._port))
                 s.settimeout(0.5)
-                
+
                 # WAITING FOR CONNECTION LOOP
                 s.listen()
-                self._logger.info('Listening for connection on %s port %i' % (self._address, self._port))
+                self._logger.info('Listening for connection on %s port %i' % (
+                    self._address, self._port))
                 while not self._stop_loop and self.parent.is_init:
                     try:
                         conn, addr = s.accept()
                         conn.settimeout(self._poll_period)
-                        
+
                         # CONNECTED LOOP
                         self._logger.info('New connection from %s:%d' % addr)
                         while not self._stop_loop and self.parent.is_init:
                             try:
                                 data = conn.recv(1024)
                                 if data:
-                                    self._logger.debug('Received %i bytes: %s' % (len(data), data))
+                                    self._logger.debug(
+                                        'Received %i bytes: %s' % (len(data), data))
                                     tle = None
                                     try:
-                                        lines = data.decode('ASCII').splitlines()
+                                        lines = data.decode(
+                                            'ASCII').splitlines()
                                         tle = lines[-2:]
-                                        if len(lines)==3:
+                                        if len(lines) == 3:
                                             satellite_name = lines[0]
-                                            self._logger.info('Received TLE for "%s"' % satellite_name)
+                                            self._logger.info(
+                                                'Received TLE for "%s"' % satellite_name)
                                     except:
-                                        self._logger.warning('Invalid TLE data:  "%s"' % data)
+                                        self._logger.warning(
+                                            'Invalid TLE data:  "%s"' % data)
                                     if tle is not None:
-                                        self._logger.info('Setting TLE to: %s' % str(tle))
-                                        self.parent.target.set_target_from_tle(tle)
+                                        self._logger.info(
+                                            'Setting TLE to: %s' % str(tle))
+                                        self.parent.target.set_target_from_tle(
+                                            tle)
                                 else:
                                     self._logger.info('Disconnected')
-                                    self._logger.info('Listening for connection...')
-                                    break 
+                                    self._logger.info(
+                                        'Listening for connection...')
+                                    break
                             except socket.timeout:  # (no data)
                                 pass
                             except KeyboardInterrupt:
@@ -2476,18 +2627,18 @@ class TargetServer:
                             position_report = struct.pack('<hhqLll', 24, 0, 0, int(mount_ra/180*2147483648), int(mount_dec/90*1073741824), 0) #ra, dec in degrees
                             conn.send(position_report)
                             '''
-                            
+
                     except (socket.timeout, ConnectionResetError, ConnectionAbortedError):  # (no connection)
                         pass
                     except KeyboardInterrupt:
                         self._stop_loop = True
                         break
-    
+
         self._thread = Thread(target=run)
         self._stop_loop = False
         self._thread.start()
         self._is_init = True
-    
+
     def stop(self):
         self._logger.info('Stopping target server')
         if self._thread is not None:
@@ -2495,4 +2646,5 @@ class TargetServer:
             try:
                 self._thread.join()
             except BaseException:
-                self._logger.warning('Failed to join system worker thread.', exc_info=True)
+                self._logger.warning(
+                    'Failed to join system worker thread.', exc_info=True)

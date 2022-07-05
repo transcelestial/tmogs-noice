@@ -30,7 +30,7 @@ import logging
 from time import sleep, time as timestamp
 from datetime import datetime
 from threading import Thread, Event
-import pythoncom
+#import pythoncom #zwoasi requirement, not needed
 from struct import pack as pack_data
 from enum import Enum
 
@@ -89,7 +89,7 @@ class Mount:
     """
 
     _supported_models = ('Celestron','ASCOM','iOptron AZMP')
-    _default_model = 'ASCOM'
+    _default_model = 'Celestron'
 
 
     def __init__(self, model=None, identity=None, name=None, auto_init=True, debug_folder=None, **properties):
