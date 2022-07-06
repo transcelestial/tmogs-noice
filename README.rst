@@ -41,6 +41,19 @@ With several features added for user convenience:
 + Improved start of tracking by projecting intercept point
 + Additional control offset in coarse camera view (to help recover from severe misalignment)
 
+====
+
+Prerequisites
+^^^^^^^^^^^^^^^^^^^^^^
+Install from apt or some other package manager
+
++ libjpeg-dev
++ gfortran
+
+Then you can use pipenv to install dependencies like usual
+
++ `pipenv sync`
+
 
 ====
 
