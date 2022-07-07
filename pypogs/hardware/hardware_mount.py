@@ -30,7 +30,7 @@ import logging
 from time import sleep, time as timestamp
 from datetime import datetime
 from threading import Thread, Event
-import pythoncom
+#import pythoncom #zwoasi requirement, not needed
 from struct import pack as pack_data
 from enum import Enum
 
@@ -89,7 +89,7 @@ class Mount:
     """
 
     _supported_models = ('Celestron','ASCOM','iOptron AZMP')
-    _default_model = 'ASCOM'
+    _default_model = 'Celestron'
 
 
     def __init__(self, model=None, identity=None, name=None, auto_init=True, debug_folder=None, **properties):
@@ -172,7 +172,7 @@ class Mount:
             self.model = model
         if identity is not None:
             self.identity = identity
-        if self.model is not None:
+        if model is not None:
             self.initialize()
             
         available_properties = self.available_properties
@@ -1181,10 +1181,12 @@ class Mount:
         port_index = int(port_index)
         self._logger.debug('Searching for serial port at index: ' +str(port_index))
         ports = self.list_available_ports()
-        num_ports = len(ports)
-        self._logger.debug('Found '+str(num_ports)+' ports: ' + str(ports))
-        assert port_index < num_ports, 'Port index %i out of range (%i ports found)' % (port_index, num_ports)
-        return ports[port_index][0]
+        self._logger.debug('Found ports: ' + str(ports))
+        try:
+            return ports[port_index][0]
+        except IndexError:
+            self._logger.debug('Index error', exc_info=True)
+            raise AssertionError('No serial port for index: '+str(identity))
 
     def _serial_test(self, port_name, baud, test_command, nbytes):
         """PRIVATE: Test if serial communication is established by sending """
@@ -1346,3 +1348,4 @@ class Mount:
             sleep(2.5)
             self._azmp_get_command_mode()
             assert self._azmp_command_mode == to_mode, 'Failed to transition mount to %s commanding mode"' % to_mode
+            
