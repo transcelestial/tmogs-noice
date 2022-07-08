@@ -584,15 +584,11 @@ class LiveViewFrame(ttk.Frame):
 
         self.logger.debug('Finished creating. Calling update on self')
 
-        #OCEAN HERE DEMO TRACKING TEST
-        ttk.Button(self.bottom_frame2, text='Start DEMO Tracking V1', command=self.start_demo_tracking_callback) \
+        #OCEAN HERE DEMO TRACKING TEST    
+        ttk.Button(self.bottom_frame2, text='Start DEMO Tracking', command=self.start_demo_tracking_callback_v2) \
                                                             .grid(row=1, column=4, padx=(5,0))
-        ttk.Button(self.bottom_frame2, text='Stop DEMO Tracking V1', command=self.stop_demo_tracking_callback) \
-                                                            .grid(row=2, column=4, padx=(5,0))     
-        ttk.Button(self.bottom_frame2, text='Start DEMO Tracking V2', command=self.start_demo_tracking_callback_v2) \
-                                                            .grid(row=1, column=5, padx=(5,0))
-        ttk.Button(self.bottom_frame2, text='Stop DEMO Tracking V2', command=self.stop_demo_tracking_callback_v2) \
-                                                            .grid(row=2, column=5, padx=(5,0))                                                                                                             
+        ttk.Button(self.bottom_frame2, text='Stop DEMO Tracking', command=self.stop_demo_tracking_callback_v2) \
+                                                            .grid(row=2, column=4, padx=(5,0))                                                                                                             
 
         self.update()
 
@@ -816,139 +812,6 @@ class LiveViewFrame(ttk.Frame):
                 self.logger.error('No camera selected in canvas click callback')
             self.set_search_variable.set(False)
     
-    def start_demo_tracking_callback(self):
-        
-        #determined center
-        actual_center = (720, 540) #FIXME need to add a setter + getter thingamagic
-
-        def compute_dist(frame, actual_center, final):
-            x_error = final[0] - actual_center[0] #print it out
-            y_error = final[1]- actual_center[1]
-            str_x = str(round(x_error,2))
-            str_y = str(round(y_error,2))
-            cv.line(frame, (int(final[0]), int(final[1])), actual_center, (255, 255, 255), 1)
-            cv.putText(
-                img = frame,
-                text = "actual center:" + str(round(actual_center[0],2)) + ", " + str(round(actual_center[1],2)),
-                org = (100 , 50),
-                fontFace = cv.FONT_HERSHEY_DUPLEX,
-                fontScale = 1.0,
-                color = (255,255,255),
-                thickness = 1
-            )
-            cv.putText(
-                img = frame,
-                text = "beacon center: " + str(round(final[0],2)) + ", " + str(round(final[1], 2)),
-                org = (100 , 100),
-                fontFace = cv.FONT_HERSHEY_DUPLEX,
-                fontScale = 1.0,
-                color = (255,255,255),
-                thickness = 1
-            )
-            cv.putText(
-                img = frame,
-                text = "x_error: " + str_x + "    y_error: " + str_y,
-                org = (100 , 150),
-                fontFace = cv.FONT_HERSHEY_DUPLEX,
-                fontScale = 1.0,
-                color = (255,255,255),
-                thickness = 1
-            )
-            return frame
-
-        def cropping(gray):
-            # print("reso", gray.shape)
-            height_gray = gray.shape[0]
-            width_gray = gray.shape[1]
-            padding = 25   
-            (minVal, maxVal, minLoc, maxLoc) = cv.minMaxLoc(gray)
-            print("maxLoc", maxLoc)
-            print("maxVal", maxVal)
-            width_start = min(max(maxLoc[0]-padding, 0), width_gray)
-            width_end = min(max(maxLoc[0] + padding, 0), width_gray)
-            height_start = min(max(maxLoc[1]-padding, 0), height_gray)
-            height_end = min(max(maxLoc[1]+padding, 0), height_gray)
-            print("bounding box", height_start, height_end, width_start, width_end)
-            
-            frame8 = cv.convertScaleAbs(gray, alpha=0.25)
-            crop_frame8 = frame8[height_start:height_end, width_start:width_end] #height, width
-            # cv.imshow('crop 8', crop_frame8)
-
-            crop_frame = gray[height_start:height_end, width_start:width_end] #height, width
-            ret,thresh1 = cv.threshold(crop_frame,127,255,cv.THRESH_TOZERO)
-            # calculate moments of THRESH image
-            M = cv.moments(thresh1)
-            # calculate x,y coordinate of center
-            if M["m00"] != 0:
-                cX = (M["m10"] / M["m00"])
-                cY = (M["m01"] / M["m00"])
-            else:
-                cX, cY = 0, 0
-                return
-                
-            print("center coord", cX, cY)
-
-            final_coord = (width_start+cX, height_start+cY)
-
-            print("final coord",final_coord)
-            
-            lined_frame = compute_dist(frame8, actual_center, final_coord)
-
-            cv.circle(lined_frame, (int(width_start+cX) , int(height_start+cY)), 20, 255, 1)
-            self.tracking_frame = lined_frame
-            return lined_frame
-            #cv.imshow('gray', frame8)
-
-        self.is_demo_tracking = True
-        cam = self.camera_variable.get()
-
-        if cam == NONE : #camera is off
-            self.logger.info('cam is off')
-            camera = cv.VideoCapture("/dev/video0", cv.CAP_V4L2)
-            camera.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc('Y','1','0',' '))
-            camera.set(cv.CAP_PROP_CONVERT_RGB, 0)
-
-            if not camera.isOpened():
-                print("Cannot open camera")
-
-            ret, frame = camera.read() # Capture frame-by-frame
-            # if frame is read correctly ret is True
-           
-            if not ret:
-                print("Can't receive frame (stream end?). Exiting ...")
-
-            cropping(frame)
-
-        else: #camera is already on
-            self.logger.info('cam is on')
-
-            if cam == STAR_OL:
-                if self.sys.star_camera.is_running:
-                    self.logger.info('star cam is on')
-                    img = self.sys.star_camera.get_latest_image() 
-        
-            elif cam == COARSE_CCL:  
-                if self.sys.coarse_camera.is_running:  
-                    self.logger.info('coarse cam is on')
-                    img = self.sys.coarse_camera.get_latest_image()
-                
-            elif cam == FINE_FCL:
-                if self.sys.fine_camera.is_running:
-                    self.logger.info('fine cam is on')
-                    img = self.sys.fine_camera.get_latest_image()
-
-            cropping(img)
-           
-                
-    def stop_demo_tracking_callback(self):
-        self.is_demo_tracking = False
-        self.logger.debug('demo tracking got stop request')
-        try:
-            self.sys.stop()
-        except Exception as err:
-            self.logger.debug('Did not stop', exc_info=True)
-            ErrorPopup(self, err, self.logger)
-
     def start_demo_tracking_callback_v2(self):
         if self.sys.mount is not None and self.sys.mount.is_init and self.sys.mount._is_sidereal_tracking:
             self.logger.debug('Sidereal tracking is on.  Will turn off.')
