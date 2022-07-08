@@ -7,6 +7,8 @@ Current hardware support:
 
     - :class:`pypogs.Camera`: 'ascom' for ASCOM-enabled cameras.  Requires ASCOM platform, ASCOM drivers, and native drivers.
       Tested with FIXME.
+
+    - :class:`pypogs.Camera`: 'ocvcam' for OpenCV/V4L2 compatible cameras. Requires camera specific drivers.
       
       
 This is Free and Open-Source Software originally written by Gustav Pettersson at ESA.
@@ -26,6 +28,7 @@ License:
     See the License for the specific language governing permissions and
     limitations under the License.
 """
+
 # Standard imports:
 from cmath import e
 from pathlib import Path
@@ -38,12 +41,12 @@ from turtle import end_fill
 
 
 # External imports:
-import numpy as np
-import serial
-import cv2 as cv
+import numpy as np              #import numpy
+import serial                   #import pyserial
+import cv2 as cv                #import OpenCV
 
 # Hardware support imports:
-#import zwoasi #not needed
+#import zwoasi                   #import zwoasi
 
 _zwoasi_bayer = {0:'RGGB', 1:'BGGR', 2:'GRBG', 3:'GBRG'}                                                        
 
@@ -130,20 +133,24 @@ class Camera:
         self._flipY = False
         self._rot90 = 0 #Number of times to rotate by 90 deg, done after flips
         self._color_bin = True # Downscale when debayering instead of interpolating for speed
+
         #Only used for ptgrey
         self._ptgrey_camera = None
         self._ptgrey_camlist = None
         self._ptgrey_system = None
+
         #Only used for zwoasi
         self._zwoasi_camera_index = None
         self._zwoasi_camera = None
         self._zwoasi_is_init = False
         self._zwoasi_image_handler = None
         self._zwoasi_property = None
+
         #Only used for ascom
         self._ascom_driver_handler = None
         self._ascom_camera = None
         self._exposure_sec = 0.1
+
         # #Only used for ocvcam
         self._ocvcam_camera = None
         self._ocvcam_camera_index = None
@@ -266,7 +273,7 @@ class Camera:
         """PRIVATE: Release OPENCV hardware resources."""
         self._log_debug('OpenCV camera release called')
         if self._ocvcam_camera is not None:
-            self._ocvcam_camera.release()
+            self._ocvcam_camera.release()               #closes video file or capturing device
             self._ocvcam_camera = None
         self._log_debug('OpenCV camera hardware released')
 
@@ -314,7 +321,7 @@ class Camera:
         - For model *ascom*, a driver name may be specified if known, (i.e. DSLR, ASICamera1, ASICamera2, Simulator,
         QHYCCD, QHYCCD_GUIDER, QHYCCD_CAM2, AtikCameras, AtikCameras2, etc), otherwise the ASCOM driver
         selector will open.
-        - For model *picam*, maybe we can specify the camera CSI port?
+        - For model *ocvcam*, we will using the camera port number (i.e. CAM0 or CAM1 to identify)
         """
         return self._identity
     @identity.setter
@@ -573,7 +580,6 @@ class Camera:
                             break
                         self.parent._log_debug('New frame captured!')
                         frame = cv.resize(frame, (800, 640))
-                        frame = cv.rotate(frame, cv.ROTATE_180)
                         self.parent._image_data = frame
                         self.parent._image_timestamp = datetime.utcnow()
                         self.parent._got_image_event.set()
