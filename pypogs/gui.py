@@ -571,7 +571,9 @@ class LiveViewFrame(ttk.Frame):
         self.set_goal_variable.set(False)
         ttk.Checkbutton(self.bottom_frame2, text='Intercam Alignment', variable=self.set_goal_variable) \
                                                             .grid(row=0, column=5, padx=(50,0))
-
+        ttk.Button(self.bottom_frame2, text='Reset Alignment', command=self.reset_goal) \
+                                                            .grid(row=1, column=5, padx=(50,0))        
+                                                            
         self.annotate_variable = tk.BooleanVar()
         self.annotate_variable.set(True)
         self.goal_handles = [None]*4
@@ -812,6 +814,47 @@ class LiveViewFrame(ttk.Frame):
                 self.logger.error('No camera selected in canvas click callback')
             self.set_search_variable.set(False)
     
+    def reset_goal(self):
+        # self.logger.debug('Resetting goal')
+        # if event.x > self.image_size[0] or event.y > self.image_size[1]:
+        #     self.logger.debug('Outside image')
+        #     x_image = None
+        #     y_image = None
+        # else:
+        #     x_image = event.x - self.image_size[0] / 2
+        #     y_image = self.image_size[1] / 2 - event.y #Camera coordinates are opposite
+        #     self.logger.debug('Image coordinates x:' + str(x_image) + ' y:' + str(y_image)):
+        cam = self.camera_variable.get()
+        if cam == STAR_OL:
+            self.logger.debug('Resetting goal for OL tracker from Star camera')
+            try:
+                goal = [0, 0]
+                self.logger.info('Resetting OL goal to: ' + str(goal))
+                self.sys.control_loop_thread.OL_goal_x_y = goal
+            except Exception as err:
+                self.logger.debug('Could not set OL goal', exc_info=True)
+                ErrorPopup(self, err, self.logger)
+        elif cam == COARSE_CCL:
+            self.logger.debug('Resetting goal for CCL tracker from Coarse camera')
+            try:
+                goal = [0, 0]
+                self.logger.info('Resetting coarse goal to: ' + str(goal))
+                self.sys.coarse_track_thread.goal_x_y = goal
+            except Exception as err:
+                self.logger.debug('Could not set CCL goal', exc_info=True)
+                ErrorPopup(self, err, self.logger)
+        elif cam == FINE_FCL:
+            self.logger.debug('Resetting goal for FCL tracker from Fine camera')
+            try:
+                goal = [0, 0]
+                self.logger.info('Resetting fine goal to: ' + str(goal))
+                self.sys.fine_track_thread.goal_x_y = goal
+            except Exception as err:
+                self.logger.debug('Could not set FCL goal', exc_info=True)
+                ErrorPopup(self, err, self.logger)
+        else:
+            self.logger.debug('No camera selected in canvas click callback')
+
     def start_demo_tracking_callback_v2(self):
         if self.sys.mount is not None and self.sys.mount.is_init and self.sys.mount._is_sidereal_tracking:
             self.logger.debug('Sidereal tracking is on.  Will turn off.')
@@ -989,7 +1032,7 @@ class LiveViewFrame(ttk.Frame):
             else:
                 self.canvas.itemconfig(self.canvas_image, image=self.tk_image)
                 self.logger.debug('Image was updated')
-            #goal, crosshair 
+            #goal crosshair, this is the big arrow head crosshair which shows the goal for the bright spot
             if self.annotate_variable.get() and not None in (goal_pos[0], goal_pos[1], plate_scale):
                 self.logger.debug('Annotating Goal: ' + str(goal_pos) + ' scale: ' + str(plate_scale))
                 gap = 5
@@ -1017,6 +1060,7 @@ class LiveViewFrame(ttk.Frame):
                                                                    arrowshape=(10,14,6))
                     self.goal_handles[3] = self.canvas.create_line(*xhair[:,6], *xhair[:,7], fill='blue',\
                                                                    width=width, tag='goal')
+                    
                 else:
                     self.canvas.coords(self.goal_handles[0], *xhair[:,0], *xhair[:,1])
                     self.canvas.coords(self.goal_handles[1], *xhair[:,2], *xhair[:,3])
@@ -1026,7 +1070,7 @@ class LiveViewFrame(ttk.Frame):
             else:
                 self.logger.debug('Hiding goal')
                 self.canvas.tag_lower('goal')
-            #offset
+            #offset marker, this is the small lighter crosshair in the middle of main cross hair
             if self.annotate_variable.get() and not None in (offset_pos[0], offset_pos[1], plate_scale):
                 self.logger.debug('Annotating Offset: ' + str(offset_pos) + ' scale: ' + str(plate_scale))
                 gap = 5
@@ -1060,9 +1104,9 @@ class LiveViewFrame(ttk.Frame):
             else:
                 self.logger.debug('Hiding offset')
                 self.canvas.tag_lower('offset')
-                
+            #mean circle, green circle
             if self.annotate_variable.get() and not None in (mean_pos[0], mean_pos[1], track_sd, plate_scale): #ocean: circle is here
-                self.logger.debug('Annotating Mean: ' + str(mean_pos) + ' scale: ' + str(track_sd))
+                self.logger.debug('Annotating Mean: ' + str(mean_pos) + ' scale: ' + str(track_sd) + ' image_scale: ' + str(self.image_scale)) #just to see the image scale
                 canvas_x = mean_pos[0] / plate_scale * self.image_scale + self.image_size[0] / 2 - .5
                 canvas_y = -mean_pos[1] / plate_scale * self.image_scale + self.image_size[1] / 2 + .5
                 canvas_sd = track_sd / plate_scale * self.image_scale
@@ -1077,7 +1121,7 @@ class LiveViewFrame(ttk.Frame):
                 self.logger.debug('Hiding mean')
                 self.canvas.tag_lower('mean')
                 
-            #search
+            #search circle, blue circle
             if self.annotate_variable.get() and not None in (search_pos[0], search_pos[1], search_rad, plate_scale):
                 self.logger.debug('Annotating Search: ' + str(search_pos) + ' radius: ' + str(search_rad))
                 canvas_x = search_pos[0] / plate_scale * self.image_scale + self.image_size[0] / 2 - .5
@@ -1094,7 +1138,7 @@ class LiveViewFrame(ttk.Frame):
             else:
                 self.logger.debug('Hiding mean')
                 self.canvas.tag_lower('search')
-            #
+            #target cross, this is the small green cross hair on top of the bright spot pypogs is tracking
             if self.annotate_variable.get() and not None in (track_pos[0], track_pos[1], plate_scale):
                 self.logger.debug('Annotating Search: ' + str(track_pos) + ' radius: ' + str(search_rad))
                 canvas_x = track_pos[0] / plate_scale * self.image_scale + self.image_size[0] / 2 - .5
@@ -1110,6 +1154,7 @@ class LiveViewFrame(ttk.Frame):
                                                                           tag='track')
                     self.track_cross_handles[1] = self.canvas.create_line(coords_v, fill=colour, width=width,\
                                                                           tag='track')
+
                 else:
                     self.canvas.coords(self.track_cross_handles[0], coords_h)
                     self.canvas.coords(self.track_cross_handles[1], coords_v)
@@ -1492,9 +1537,13 @@ class HardwareFrame(ttk.Frame):
                     label.grid(row=row, column=column, sticky=tk.E)
                     try:
                         name = prop
-                        value = str(getattr(self.device, name))
-                        entry.insert(0, value)
-                        label['text'] = name
+                        if name == "plate_scale":
+                            entry.insert(0, "14.2")
+                            label['text'] = name
+                        else:
+                            value = str(getattr(self.device, name))
+                            entry.insert(0, value)
+                            label['text'] = name
                     except AttributeError as err:
                         ErrorPopup(self, err, self.logger)
                     try:
@@ -1509,6 +1558,7 @@ class HardwareFrame(ttk.Frame):
             else:
                 self.properties_frame.grid_forget() #Hide entirely from the popup
             # Hide any widgets no longer in use
+
             while i < len(self.property_entries):
                 (old_name, entry, old_value, label) =  self.property_entries[i]
                 entry.grid_forget()

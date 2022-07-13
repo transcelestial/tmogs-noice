@@ -748,18 +748,31 @@ class ControlLoopThread:
             self._log_debug('Found allowable file: '+str(data_file))
         with open(data_file, 'w') as file:
             writer = csv_write(file)
-
-            writer.writerow(['T_UTC_ISO', 'T_ELAPSED', 'INDEX', 'MODE', 'TARG_MNT_ALT',
-                             'TARG_MNT_AZ', 'TARG_MNT_RATE_ALT', 'TARG_MNT_RATE_AZ',
-                             'TARG_ENU_ALT', 'TARG_ENU_AZ', 'MOUNT_MNT_ALT', 'MOUNT_MNT_AZ',
-                             'COARSE_EXIST', 'COARSE_TRACK', 'COARSE_ALT_TRACK', 'COARSE_ALT_MEAN',
-                             'COARSE_AZ_TRACK', 'COARSE_AZ_MEAN', 'COARSE_SD', 'COARSE_RMSE',
-                             'FINE_EXIST', 'FINE_TRACK', 'FINE_ALT_TRACK', 'FINE_ALT_MEAN',
-                             'FINE_AZ_TRACK', 'FINE_AZ_MEAN', 'FINE_SD', 'FINE_RMSE', 'FB_ERR_ALT',
-                             'FB_ERR_AZ', 'FB_INT_ALT', 'FB_INT_AZ', 'FB_ANGVEL_ALT',
-                             'FB_ANGVEL_AZ', 'FB_SATURATED', 'FB_COMMAND_ALT', 'FB_COMMAND_AZ',
-                             'FB_KP', 'FB_KI', 'FF_ALT', 'FF_AZ', 'REC_EXIST', 'REC_POWER',
-                             'REC_SMOOTH'])
+            
+            if self.tracking_demo_bool == False: #if doing full tracking
+                writer.writerow(['T_UTC_ISO', 'T_ELAPSED', 'INDEX', 'MODE', 'TARG_MNT_ALT',
+                                'TARG_MNT_AZ', 'TARG_MNT_RATE_ALT', 'TARG_MNT_RATE_AZ',
+                                'TARG_ENU_ALT', 'TARG_ENU_AZ', 'MOUNT_MNT_ALT', 'MOUNT_MNT_AZ',
+                                'COARSE_EXIST', 'COARSE_TRACK', 'COARSE_ALT_TRACK', 'COARSE_ALT_MEAN',
+                                'COARSE_AZ_TRACK', 'COARSE_AZ_MEAN', 'COARSE_SD', 'COARSE_RMSE',
+                                'FINE_EXIST', 'FINE_TRACK', 'FINE_ALT_TRACK', 'FINE_ALT_MEAN',
+                                'FINE_AZ_TRACK', 'FINE_AZ_MEAN', 'FINE_SD', 'FINE_RMSE', 'FB_ERR_ALT',
+                                'FB_ERR_AZ', 'FB_INT_ALT', 'FB_INT_AZ', 'FB_ANGVEL_ALT',
+                                'FB_ANGVEL_AZ', 'FB_SATURATED', 'FB_COMMAND_ALT', 'FB_COMMAND_AZ',
+                                'FB_KP', 'FB_KI', 'FF_ALT', 'FF_AZ', 'REC_EXIST', 'REC_POWER',
+                                'REC_SMOOTH'])
+            else:
+                writer.writerow(['T_UTC_ISO', 'T_ELAPSED', 'INDEX', 'MODE', 'TARG_MNT_ALT',
+                                'TARG_MNT_AZ', 'TARG_MNT_RATE_ALT', 'TARG_MNT_RATE_AZ',
+                                'MOUNT_MNT_ALT', 'MOUNT_MNT_AZ',
+                                'COARSE_EXIST', 'COARSE_TRACK', 'COARSE_ALT_TRACK', 'COARSE_ALT_MEAN',
+                                'COARSE_AZ_TRACK', 'COARSE_AZ_MEAN', 'COARSE_SD', 'COARSE_RMSE',
+                                'FINE_EXIST', 'FINE_TRACK', 'FINE_ALT_TRACK', 'FINE_ALT_MEAN',
+                                'FINE_AZ_TRACK', 'FINE_AZ_MEAN', 'FINE_SD', 'FINE_RMSE', 'FB_ERR_ALT',
+                                'FB_ERR_AZ', 'FB_INT_ALT', 'FB_INT_AZ', 'FB_ANGVEL_ALT',
+                                'FB_ANGVEL_AZ', 'FB_SATURATED', 'FB_COMMAND_ALT', 'FB_COMMAND_AZ',
+                                'FB_KP', 'FB_KI', 'FF_ALT', 'FF_AZ', 'REC_EXIST', 'REC_POWER',
+                                'REC_SMOOTH'])
         # Check if we need to slew
         if self.tracking_demo_bool == False:
             target_alt_az = self._parent.get_alt_az_of_target(start_time)[0]
@@ -1202,12 +1215,14 @@ class ControlLoopThread:
                 with open(data_file, 'a') as file:
                     writer = csv_write(file)
 
-                    if self.tracking_demo_bool == False: 
+                    if self.tracking_demo_bool == False: #if doing full tracking
                         writer.writerow([loop_utctime.isot, loop_timestamp, loop_index, mode,
                                         target_mnt_altaz[0], target_mnt_altaz[1], target_mnt_rate[0],
-                                        target_mnt_rate[1], target_enu_altaz[0], target_enu_altaz[1],
-                                        mount_mnt_altaz[0], mount_mnt_altaz[1], ct_exists,
-                                        ct_has_track, ct_track_alt_az[0], ct_mean_alt_az[0],
+                                        target_mnt_rate[1], target_enu_altaz[0], target_enu_altaz[1], 
+                                        #adding gui view target position
+                                        mount_mnt_altaz[0], mount_mnt_altaz[1],  
+                                        #adding gui view goal position
+                                        ct_exists, ct_has_track, ct_track_alt_az[0], ct_mean_alt_az[0],
                                         ct_track_alt_az[1], ct_mean_alt_az[1], ct_track_sd, ct_rmse,
                                         ft_exists, ft_has_track, ft_track_alt_az[0],
                                         ft_mean_alt_az[0], ft_track_alt_az[1], ft_mean_alt_az[1],
@@ -1219,9 +1234,11 @@ class ControlLoopThread:
                     else:
                         writer.writerow([loop_utctime.isot, loop_timestamp, loop_index, mode,
                                         target_mnt_altaz[0], target_mnt_altaz[1], target_mnt_rate[0],
-                                        target_mnt_rate[1], #target_enu_altaz[0], target_enu_altaz[1], #no enu altaz >:)
-                                        mount_mnt_altaz[0], mount_mnt_altaz[1], ct_exists,
-                                        ct_has_track, ct_track_alt_az[0], ct_mean_alt_az[0],
+                                        target_mnt_rate[1], 
+                                        #adding gui view target position
+                                        mount_mnt_altaz[0], mount_mnt_altaz[1], 
+                                        #adding gui view goal position
+                                        ct_exists, ct_has_track, ct_track_alt_az[0], ct_mean_alt_az[0],
                                         ct_track_alt_az[1], ct_mean_alt_az[1], ct_track_sd, ct_rmse,
                                         ft_exists, ft_has_track, ft_track_alt_az[0],
                                         ft_mean_alt_az[0], ft_track_alt_az[1], ft_mean_alt_az[1],
@@ -1651,19 +1668,19 @@ class TrackingThread:
                         tiff_write(self._image_folder / imgname, image)
                         img_saved = True
                 # Get state
-                has_track = self.spot_tracker.has_track
-                rmse = self.spot_tracker.rms_error
-                (x, y) = self.spot_tracker.track_x_y
-                (mx, my) = self.spot_tracker.mean_x_y
-                sd = self.spot_tracker.track_sd
-                s = self.spot_tracker.track_sum
-                ms = self.spot_tracker.mean_sum
-                ss = self.spot_tracker.sd_sum
-                a = self.spot_tracker.track_area
-                ma = self.spot_tracker.mean_area
-                sa = self.spot_tracker.sd_area
-                ff_rate = self._feedforward_rate
-                offs_rate = self._goal_offset_rate
+                has_track = self.spot_tracker.has_track #
+                rmse = self.spot_tracker.rms_error #RMSE
+                (x, y) = self.spot_tracker.track_x_y #X_TRACK, Y_TRACK
+                (mx, my) = self.spot_tracker.mean_x_y #X_MEAN, Y_MEAN
+                sd = self.spot_tracker.track_sd #TRACK_SD
+                s = self.spot_tracker.track_sum #SUM_TRACK
+                ms = self.spot_tracker.mean_sum #SUM_MEAN
+                ss = self.spot_tracker.sd_sum #SUM_SD
+                a = self.spot_tracker.track_area #AREA_TRACK
+                ma = self.spot_tracker.mean_area #AREA_MEAN
+                sa = self.spot_tracker.sd_area #AREA_SD
+                ff_rate = self._feedforward_rate #FF_RATE_X, FF_RATE_Y
+                offs_rate = self._goal_offset_rate #OFFS_RATE_X, OFFS_RATE_Y
                 # Saving log
                 with open(data_file, 'a') as file:
                     writer = csv_write(file)
@@ -3037,6 +3054,8 @@ class SpotTracker:
                                            bg_sub_mode=self.bg_subtract_mode,
                                            return_moments=True, sigma=self.image_sigma_th,
                                            centroid_window=self.centroid_window)
+            self._logger.debug('ocean: has track centroids')
+            self._logger.debug(ret)
             success = False
             if ret[0][:, 0].size > 0:
                 x = (ret[0][:, 1] - imshape[1] / 2) * plate_scale
@@ -3084,6 +3103,8 @@ class SpotTracker:
                                            bg_sub_mode=self.bg_subtract_mode,
                                            return_moments=True, sigma=self.image_sigma_th,
                                            centroid_window=self.centroid_window)
+            self._logger.debug('ocean: no track centroids')
+            self._logger.debug(ret)
             if ret[0][:, 0].size > 0:
                 self._success_count += 1
                 self._fail_count = 0
