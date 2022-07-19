@@ -580,8 +580,8 @@ class LiveViewFrame(ttk.Frame):
         # self.alignment_y = ttk.Entry(self.bottom_frame2, width=10)
         # self.alignment_y.grid(row=2, column=6, padx=(5,0))
 
-        ttk.Button(self.bottom_frame2, text='Set Intercam Alignment', command=self.manual_set_goal) \
-                                                            .grid(row=1, column=5, padx=(50,0))     
+        # ttk.Button(self.bottom_frame2, text='Set Intercam Alignment', command=self.manual_set_goal) \
+        #                                                     .grid(row=1, column=5, padx=(50,0))     
 
         ttk.Button(self.bottom_frame2, text='Reset Alignment', command=self.reset_goal) \
                                                             .grid(row=2, column=5, padx=(50,0))                                                                
