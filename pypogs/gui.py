@@ -571,8 +571,20 @@ class LiveViewFrame(ttk.Frame):
         self.set_goal_variable.set(False)
         ttk.Checkbutton(self.bottom_frame2, text='Intercam Alignment', variable=self.set_goal_variable) \
                                                             .grid(row=0, column=5, padx=(50,0))
+        
+        # ttk.Label(self.bottom_frame2, text='Alignment X:').grid(row=1, column=5)
+        # self.alignment_x = ttk.Entry(self.bottom_frame2, width=10)
+        # self.alignment_x.grid(row=1, column=6, padx=(5,0))
+
+        # ttk.Label(self.bottom_frame2, text='Alignment Y:').grid(row=2, column=5)
+        # self.alignment_y = ttk.Entry(self.bottom_frame2, width=10)
+        # self.alignment_y.grid(row=2, column=6, padx=(5,0))
+
+        ttk.Button(self.bottom_frame2, text='Set Intercam Alignment', command=self.manual_set_goal) \
+                                                            .grid(row=1, column=5, padx=(50,0))     
+
         ttk.Button(self.bottom_frame2, text='Reset Alignment', command=self.reset_goal) \
-                                                            .grid(row=1, column=5, padx=(50,0))        
+                                                            .grid(row=2, column=5, padx=(50,0))                                                                
                                                             
         self.annotate_variable = tk.BooleanVar()
         self.annotate_variable.set(True)
@@ -813,7 +825,78 @@ class LiveViewFrame(ttk.Frame):
             else:
                 self.logger.error('No camera selected in canvas click callback')
             self.set_search_variable.set(False)
-    
+     
+    # if img is not None:
+    #         if self.auto_max_variable.get(): #Auto set max scaling
+    #             maxval = int(np.max(img))
+    #             self.max_entry.delete(0, 'end')
+    #             self.max_entry.insert(0, str(maxval))
+    #             self.logger.debug('Using auto max scaling with maxval {}'.format(maxval))
+    #         else:
+    #             try:
+    #                 maxval = int(self.max_entry.get())
+    #                 self.logger.debug('Using manual maxval {}'.format(maxval))
+    #             except:
+    #                 self.logger.debug('Failed to convert max entry value {} to int'\
+    #                                    .format(self.max_entry.get()))
+    #                 maxval = 255
+
+
+    def manual_set_goal(self):
+        # self.logger.debug('Resetting goal')
+        # if event.x > self.image_size[0] or event.y > self.image_size[1]:
+        #     self.logger.debug('Outside image')
+        #     x_image = None
+        #     y_image = None
+        # else:
+        #     x_image = event.x - self.image_size[0] / 2
+        #     y_image = self.image_size[1] / 2 - event.y #Camera coordinates are opposite
+        #     self.logger.debug('Image coordinates x:' + str(x_image) + ' y:' + str(y_image)):
+        print(self.alignment_x)
+        print(self.alignment_y)
+        try:
+            align_x = int(self.alignment_x)
+            align_y = int(self.alignment_y) 
+            self.logger.debug('Using manual alignment values: {}, {}'.format(align_x,align_y))
+            self.logger.info('Using manual alignment values: {}, {}'.format(align_x,align_y))
+        except:
+            self.logger.debug('Failed to convert alignment values {}, {} to int'\
+                            .format(align_x,align_y))
+            align_x = 0
+            align_y = 0
+
+        cam = self.camera_variable.get()
+        if cam == STAR_OL:
+            self.logger.debug('Resetting goal for OL tracker from Star camera')
+            try:
+                goal = [align_x, align_y]
+                self.logger.info('Resetting OL goal to: ' + str(goal))
+                self.sys.control_loop_thread.OL_goal_x_y = goal
+            except Exception as err:
+                self.logger.debug('Could not set OL goal', exc_info=True)
+                ErrorPopup(self, err, self.logger)
+        elif cam == COARSE_CCL:
+            self.logger.debug('Resetting goal for CCL tracker from Coarse camera')
+            try:
+                goal = [align_x, align_y]
+                self.logger.info('Resetting coarse goal to: ' + str(goal))
+                self.sys.coarse_track_thread.goal_x_y = goal
+            except Exception as err:
+                self.logger.debug('Could not set CCL goal', exc_info=True)
+                ErrorPopup(self, err, self.logger)
+        elif cam == FINE_FCL:
+            self.logger.debug('Resetting goal for FCL tracker from Fine camera')
+            try:
+                goal = [align_x, align_y]
+                self.logger.info('Resetting fine goal to: ' + str(goal))
+                self.sys.fine_track_thread.goal_x_y = goal
+            except Exception as err:
+                self.logger.debug('Could not set FCL goal', exc_info=True)
+                ErrorPopup(self, err, self.logger)
+        else:
+            self.logger.debug('No camera selected in canvas click callback')
+
+
     def reset_goal(self):
         # self.logger.debug('Resetting goal')
         # if event.x > self.image_size[0] or event.y > self.image_size[1]:
@@ -1332,7 +1415,7 @@ class HardwareFrame(ttk.Frame):
         try:
             if self.star_popup is None:
                 self.star_popup = self.HardwarePopup(self, 'camera', self.sys.star_camera, self.sys.add_star_camera, \
-                                                     self.sys.clear_star_camera, title='Star camera lolol', \
+                                                     self.sys.clear_star_camera, title='Star camera', \
                                                      default_name='StarCamera', link_device=self.sys.coarse_camera, \
                                                      link_func=self.sys.add_coarse_camera_from_star)
             else:
@@ -1677,7 +1760,7 @@ class TargetFrame(ttk.Frame):
             ttk.Label(target_selection_frame, text='Select satellite:').grid(row=0, column=0, sticky=tk.W)
             self.target_selection_combo = ttk.Combobox(target_selection_frame, values=list(self.master.sys.saved_targets.keys()))
             self.target_selection_combo.grid(row=0, column=2, sticky="EW")
-            self.target_selection_combo.set('GPS 13')
+            self.target_selection_combo.set('ISS')
             ttk.Button(target_selection_frame, text='Get', command=self.get_tle_for_selected_satellite).grid(row=0, column=3, sticky="EW")
 
             # Fetch TLE Input:
