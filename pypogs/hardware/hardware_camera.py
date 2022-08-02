@@ -43,10 +43,10 @@ from turtle import end_fill
 # External imports:
 import numpy as np              #import numpy
 import serial                   #import pyserial
-import cv2 as cv                #import OpenCV
 
 # Hardware support imports:
-#import zwoasi                   #import zwoasi
+import cv2 as cv                #import OpenCV, for use of ocvcams
+#import zwoasi                  #import zwoasi
 
 _zwoasi_bayer = {0:'RGGB', 1:'BGGR', 2:'GRBG', 3:'GBRG'}                                                        
 
@@ -365,9 +365,6 @@ class Camera:
             self._log_debug('Using OpenCV, loading and initializing the package')
             self._identity = identity
 
-            #TODO: room for expansion when the time comes to use multiple cameras with our board
-            #could use port number for the identification
-
         elif self.model.lower() == 'zwoasi':
             self._log_debug('Using zwoasi, first load and initialise the package')
             library_path = Path(__file__).parent.parent / '_system_data' / 'ASICamera2'
@@ -538,11 +535,13 @@ class Camera:
         
         elif self.model.lower() == 'ocvcam':
             self._log_debug('Using OpenCV, trying to initialise')
-            #Initializing the camera with OpenCV #Based on the port number, it will initalize the 2nd camera
+            #Initializing the camera with OpenCV 
+            #Based on the port number, it will initalize the 2nd camera
             self._ocvcam_camera = cv.VideoCapture("/dev/video" + str(self._identity), cv.CAP_V4L2)
             #Conversion from Y10 to RGB
             self._ocvcam_camera.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc('Y','1','0',' '))
             self._ocvcam_camera.set(cv.CAP_PROP_CONVERT_RGB, 0)
+            self._ocvcam_camera.set(cv.CAP_PROP_FPS, 59)
 
             class OCVImageHandler():
                 def __init__(self, parent):
@@ -570,7 +569,7 @@ class Camera:
                     """Start camera and continuously read out data"""
                     self.parent._log_info('Starting OCVCam and continuously display frames captured')
                     while not self._stop_running:
-                        #Capture frame by frame, using camera.read()
+                        #Capture frame by frame
                         ret, frame = self.parent._ocvcam_camera.read()
                         if not ret:
                             self.parent._log_info('No frame captured!') #Small check with ret, used to ensure a frame is captured
@@ -1177,7 +1176,7 @@ class Camera:
             self._log_debug('frame rate not supported in ASCOM camera class')
             return 0
         elif self.model.lower() == 'ocvcam':
-            return 30 # we just leave 30 for now, will come back
+            pass # we just leave 30 for now, will come back
             # return self._log_debug("CAP_PROP_FPS : '{}'".format(self._ocvcam_camera.get(cv.CAP_PROP_FPS)))
             # # change to same code as exposure ^ doesn't seem to work  
         else:
@@ -1568,8 +1567,8 @@ class Camera:
             self._log_debug('Returning '+str(self._exposure_sec*1000))
             return self._exposure_sec*1000
         elif self.model.lower() == 'ocvcam': 
-            # return self._log_debug("CAP_PROP_EXPOSURE : '{}'".format(self._ocvcam_camera.get(cv.CAP_PROP_EXPOSURE)))             
-            return self._ocvcam_camera.get(cv.CAP_PROP_EXPOSURE) # jiahau testing 
+            # We return NA as exposure time is a feature that does not work with our IMX296 Sensor
+            return "NA"
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
