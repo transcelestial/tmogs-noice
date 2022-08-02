@@ -90,7 +90,7 @@ class GUI:
                                                    .format(pypogs_system, gui_update_ms))
         gui_update_ms = int(gui_update_ms)
         self.root = tk.Tk()
-        self.root.title('pypogs: the PYthon Portable Optical Ground Station')
+        self.root.title('Transcelestial Mobile Optical Ground Station')
         self.root.resizable(False, False)
         self.sys = pypogs_system
         self.logger.debug('Setting styles')
@@ -584,7 +584,7 @@ class LiveViewFrame(ttk.Frame):
         #                                                     .grid(row=1, column=5, padx=(50,0))     
 
         ttk.Button(self.bottom_frame2, text='Reset Alignment', command=self.reset_goal) \
-                                                            .grid(row=2, column=5, padx=(50,0))                                                                
+                                                            .grid(row=1, column=5, padx=(50,0))                                                                
                                                             
         self.annotate_variable = tk.BooleanVar()
         self.annotate_variable.set(True)
@@ -1065,8 +1065,6 @@ class LiveViewFrame(ttk.Frame):
                 self.start_demo_tracking_callback()
             else:
                 img = None
-            # else:
-            #     img = None
 
 
         if img is not None:
