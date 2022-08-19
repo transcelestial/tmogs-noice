@@ -1616,15 +1616,16 @@ class HardwareFrame(ttk.Frame):
                         label = ttk.Label(self.properties_frame, text='')
                     entry.grid(row=row, column=column+1)
                     label.grid(row=row, column=column, sticky=tk.E)
+                    # try:
+                    #     name = prop
+                    #     if name == "plate_scale":
+                    #         entry.insert(0, "14.2")
+                    #         label['text'] = name
                     try:
                         name = prop
-                        if name == "plate_scale":
-                            entry.insert(0, "14.2")
-                            label['text'] = name
-                        else:
-                            value = str(getattr(self.device, name))
-                            entry.insert(0, value)
-                            label['text'] = name
+                        value = str(getattr(self.device, name))
+                        entry.insert(0, value)
+                        label['text'] = name
                     except AttributeError as err:
                         ErrorPopup(self, err, self.logger)
                     try:
