@@ -1486,6 +1486,7 @@ class TrackingThread:
         self._name = 'UnnamedTrackingThread'
         self._freq_target = None
         self._freq_actual = None
+        self._process_benchmark = False             # Boolean flag to indicate whether to print out the processing freq of each captured frame
         self._image_folder = None
         self._img_save_frequency = None
         self._stop_running = True
@@ -1633,6 +1634,8 @@ class TrackingThread:
                 dt = loop_timestamp - old_timestamp
                 old_timestamp = loop_timestamp
                 self._actual_freq = 1/dt
+                if self._process_benchmark:
+                    self._log_debug('Processing Frequency: ' + str(self._actual_freq))
                 # Feedforward
                 ff_step_abs = np.sqrt(np.sum(np.array(self._feedforward_rate)**2))
                 self._log_debug('Feedforward step magnitude: ' + str(ff_step_abs))

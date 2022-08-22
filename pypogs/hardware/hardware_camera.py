@@ -161,10 +161,11 @@ class Camera:
         self._call_on_image = set()
         self._got_image_event = Event()
         self._image_data = None
-        self._image_timestamp = None
+        self._image_timestamp = datetime.utcnow()
         self._imgs_since_start = 0
         self._average_frame_time = None  # Running average of time between frames in ms
         self._image_precision_timestamp = None  # Precision timestamp of last frame
+        self._camera_benchmark = False          # Boolean flag to indicate whether to print out the benchmarked numbers for the camera frames
 
         self._logger.debug('Calling self on constructor input')
         if model is not None:
@@ -570,6 +571,7 @@ class Camera:
                     self.parent._log_info('Starting OCVCam and continuously display frames captured')
                     while not self._stop_running:
                         #Capture frame by frame
+                        start_timestamp = precision_timestamp()
                         ret, frame = self.parent._ocvcam_camera.read()
                         if not ret:
                             self.parent._log_info('No frame captured!') #Small check with ret, used to ensure a frame is captured
@@ -580,11 +582,15 @@ class Camera:
                         self.parent._log_debug('New frame captured!')
                         frame = cv.resize(frame, (800, 640))
                         self.parent._image_data = frame
+                        if self.parent._camera_benchmark:
+                            diff = precision_timestamp() - start_timestamp
+                            capture_freq = 1/diff
+                            self.parent._log_debug('Capture Freq: ' + str(capture_freq))
                         self.parent._image_timestamp = datetime.utcnow()
                         self.parent._got_image_event.set()
                         self.parent._log_debug('Time: ' + str(self.parent._image_timestamp) \
-                                            + ' Size:' + str(self.parent._image_data.shape) \
-                                            + ' Type:' + str(self.parent._image_data.dtype))
+                                             + ' Size:' + str(self.parent._image_data.shape) \
+                                             + ' Type:' + str(self.parent._image_data.dtype))
                         for func in self.parent._call_on_image:
                             try:
                                 func(self.parent._image_data, self.parent._image_timestamp)
