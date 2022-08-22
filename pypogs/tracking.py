@@ -213,8 +213,8 @@ class ControlLoopThread:
         self._CCL_transition_th = 100.0  # Coarse sd required to move to coarse tracking (arcsec)
         # Fine closed loop
         self._FCL_enable = True
-        self._FCL_Kp = 1.0  # Feedback gain (deg/s per degree error)
-        self._FCL_Ki = 1/10  # Integral gain (1/integral time [s])
+        self._FCL_Kp = .75  # Feedback gain (deg/s per degree error)
+        self._FCL_Ki = 2/10  # Integral gain (1/integral time [s])
         self._FCL_speed_limit = .05  # deg/sec
         self._FCL_transition_th = 30.0  # Fine sd required to move to fine tracking (arcsec)
         # Spiralling acquisition settings
