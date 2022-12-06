@@ -557,3 +557,4 @@ class Receiver:
         self._logger.debug('Header: ' + header)
         with open(self._data_file, 'a') as file:
             file.write(header)
+            

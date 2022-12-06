@@ -7,6 +7,8 @@ Current hardware support:
 
     - :class:`pypogs.Camera`: 'ascom' for ASCOM-enabled cameras.  Requires ASCOM platform, ASCOM drivers, and native drivers.
       Tested with FIXME.
+
+    - :class:`pypogs.Camera`: 'ocvcam' for OpenCV/V4L2 compatible cameras. Requires camera specific drivers.
       
       
 This is Free and Open-Source Software originally written by Gustav Pettersson at ESA.
@@ -26,21 +28,25 @@ License:
     See the License for the specific language governing permissions and
     limitations under the License.
 """
+
 # Standard imports:
+from cmath import e
 from pathlib import Path
 import logging
 from time import sleep, time as timestamp, perf_counter as precision_timestamp
 from datetime import datetime
 from threading import Thread, Event
 from struct import pack as pack_data
+from turtle import end_fill
 
 
 # External imports:
-import numpy as np
-import serial
+import numpy as np              #import numpy
+import serial                   #import pyserial
 
 # Hardware support imports:
-import zwoasi
+import cv2 as cv                #import OpenCV, for use of ocvcams
+#import zwoasi                  #import zwoasi
 
 _zwoasi_bayer = {0:'RGGB', 1:'BGGR', 2:'GRBG', 3:'GBRG'}                                                        
 
@@ -49,7 +55,7 @@ class Camera:
 
     To initialise a Camera a *model* (determines hardware interface) and *identity* (identifying the specific device)
     must be given. If both are given to the constructor the Camera will be initialised immediately (unless
-    auto_init=False is passed). Manually initialise with a call to Camera.initialize(); release hardware with a call to
+    auto_init = False is passed). Manually initialise with a call to Camera.initialize(); release hardware with a call to
     Camera.deinitialize().
 
     After the Camera is initialised, acquisition properties (e.g. exposure_time and frame_rate) may be set and images
@@ -86,8 +92,8 @@ class Camera:
             # Release the hardware
             cam.deinitialize()
     """
-    _supported_models = ('ptgrey','zwoasi','ascom')
-    _default_model = 'zwoasi'
+    _supported_models = ('ocvcam', 'ptgrey','zwoasi','ascom')
+    _default_model = 'ocvcam'
 
     def __init__(self, model=None, identity=None, name=None, auto_init=True, debug_folder=None, properties=[]):
         """Create Camera instance. See class documentation."""
@@ -127,28 +133,39 @@ class Camera:
         self._flipY = False
         self._rot90 = 0 #Number of times to rotate by 90 deg, done after flips
         self._color_bin = True # Downscale when debayering instead of interpolating for speed
+
         #Only used for ptgrey
         self._ptgrey_camera = None
         self._ptgrey_camlist = None
         self._ptgrey_system = None
+
         #Only used for zwoasi
         self._zwoasi_camera_index = None
         self._zwoasi_camera = None
         self._zwoasi_is_init = False
         self._zwoasi_image_handler = None
         self._zwoasi_property = None
+
         #Only used for ascom
         self._ascom_driver_handler = None
         self._ascom_camera = None
         self._exposure_sec = 0.1
+
+        # #Only used for ocvcam
+        self._ocvcam_camera = None
+        self._ocvcam_camera_index = None
+        self._ocvcam_is_init = False
+        self._ocvcam_image_handler = None
+       
         #Callbacks on image event
         self._call_on_image = set()
         self._got_image_event = Event()
         self._image_data = None
-        self._image_timestamp = None
+        self._image_timestamp = datetime.utcnow()
         self._imgs_since_start = 0
         self._average_frame_time = None  # Running average of time between frames in ms
         self._image_precision_timestamp = None  # Precision timestamp of last frame
+        self._camera_benchmark = False          # Boolean flag to indicate whether to print out the benchmarked numbers for the camera frames
 
         self._logger.debug('Calling self on constructor input')
         if model is not None:
@@ -186,7 +203,7 @@ class Camera:
             pass
         if self.is_init:
             try:
-                self._log_debug('Is initialised, de-initing')
+                self._log_debug(str(self.name) + 'is initialised, de-initing')
             except:
                 pass
             self.deinitialize()
@@ -218,9 +235,6 @@ class Camera:
         if not path.is_dir():
             path.mkdir(parents=True)
         self._debug_folder = path
-
-        
-    #FIXME:  do we need release method for zwo?
         
     def _ptgrey_release(self):
         """PRIVATE: Release Point Grey hardware resources."""
@@ -256,6 +270,14 @@ class Camera:
             self._ascom_camera = None
         self._log_debug('ASCOM camera hardware released')
 
+    def _ocvcam_release(self):
+        """PRIVATE: Release OPENCV hardware resources."""
+        self._log_debug('OpenCV camera release called')
+        if self._ocvcam_camera is not None:
+            self._ocvcam_camera.release()               #closes video file or capturing device
+            self._ocvcam_camera = None
+        self._log_debug('OpenCV camera hardware released')
+
     @property
     def name(self):
         """str: Get or set the name."""
@@ -273,7 +295,8 @@ class Camera:
         Supported:
             - 'ptgrey' for FLIR/Point Grey cameras (using Spinnaker/PySpin SDKs).
             - 'zwoasi' for ZWO ASI cameras.
-            - 'ascom'  for ASCOM-enabled cameras.
+            - 'ascom' for ASCOM-enabled cameras.
+            - 'ocvcam' for OpenCV/V4L2 compatible cameras. 
 
         - This will determine which hardware API that is used.
         - Must set before initialising the device and may not be changed for an initialised device.
@@ -287,7 +310,6 @@ class Camera:
         model = str(model)
         assert model.lower() in self._supported_models,\
                                                 'Model type not recognised, allowed: '+str(self._supported_models)
-        #TODO: Check that the APIs are available.
         self._model = model
         self._log_debug('Model set to '+str(self.model))
 
@@ -300,6 +322,7 @@ class Camera:
         - For model *ascom*, a driver name may be specified if known, (i.e. DSLR, ASICamera1, ASICamera2, Simulator,
         QHYCCD, QHYCCD_GUIDER, QHYCCD_CAM2, AtikCameras, AtikCameras2, etc), otherwise the ASCOM driver
         selector will open.
+        - For model *ocvcam*, we will using the camera port number (i.e. CAM0 or CAM1 to identify)
         """
         return self._identity
     @identity.setter
@@ -338,6 +361,11 @@ class Camera:
                 self._ptgrey_camera = None
                 self._identity = identity
                 self._ptgrey_camlist.Clear()
+        
+        elif self.model.lower() == 'ocvcam':
+            self._log_debug('Using OpenCV, loading and initializing the package')
+            self._identity = identity
+
         elif self.model.lower() == 'zwoasi':
             self._log_debug('Using zwoasi, first load and initialise the package')
             library_path = Path(__file__).parent.parent / '_system_data' / 'ASICamera2'
@@ -376,18 +404,7 @@ class Camera:
             self._log_info('Selected ZWO camera: index '+str(self._zwoasi_camera_index)+', name "'+zwo_camera_names[self._zwoasi_camera_index]+'"')
             assert self._zwoasi_camera_index is not None, 'Unrecognized ZWO camera identity: "'+identity+'"'
             assert self._zwoasi_camera_index < zwo_num_cameras, ('Selected identity is greater than the available cameras,'
-                                         'largest possible is one less than ' + str(num_cams))
-            # TODO: test if in use. Turns out API allows you to initialise several objects
-            # connected to the same hardware without complaining... Must keep own list?
-            
-            #self._log_debug('Identity available, testing if in use')
-            #try...
-            #self._zwoasi_camera = zwoasi.Camera(identity)
-                
-            #except...
-            
-            #finally... close
-            
+                                         'largest possible is one less than ' + str(num_cams))            
             self._identity = identity
 
         elif self.model.lower() == 'ascom':
@@ -423,12 +440,14 @@ class Camera:
         if self.model.lower() == 'ptgrey':
             init = self._ptgrey_camera is not None and self._ptgrey_camera.IsInitialized()
             return init
+        elif self.model.lower() == 'ocvcam':
+            return self._ocvcam_is_init
         elif self.model.lower() == 'zwoasi':
             return self._zwoasi_is_init
         elif self.model.lower() == 'ascom':
             init = hasattr(self,'_ascom_camera') and self._ascom_camera is not None and self._ascom_camera.Connected
             return init
-            #FIXME: bypassed this because camera preserves .Connected state when GUI restarts without disconnecting
+
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -514,7 +533,76 @@ class Camera:
             self._ptgrey_camera.RegisterEventHandler( self._ptgrey_event_handler )
             self._log_debug('Registered ptgrey image event handler')
             self._log_info('Camera successfully initialised')
-            
+        
+        elif self.model.lower() == 'ocvcam':
+            self._log_debug('Using OpenCV, trying to initialise')
+            #Initializing the camera with OpenCV 
+            #Based on the port number, it will initalize the 2nd camera
+            self._ocvcam_camera = cv.VideoCapture("/dev/video" + str(self._identity), cv.CAP_V4L2)
+            #Conversion from Y10 to RGB
+            self._ocvcam_camera.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc('Y','1','0',' '))
+            self._ocvcam_camera.set(cv.CAP_PROP_CONVERT_RGB, 0)
+            self._ocvcam_camera.set(cv.CAP_PROP_FPS, 59)
+
+            class OCVImageHandler():
+                def __init__(self, parent):
+                    self.parent = parent
+                    self._thread = None
+                    self._stop_running = False
+                    self.parent._log_info('OCVCam intialisation complete!')
+
+                def start(self):
+                    self.parent._log_info('Starting OCVCam capture thread')
+                    self._thread = Thread(target = self._run)
+                    self._stop_running = False
+                    self._thread.start()
+                
+                def stop(self):
+                    self.parent._log_info('Stopping OCVCam capture thread')
+                    self._stop_running = True
+                    self._thread.join()
+                    self.parent._log_info('OCVCam capture thread has been stopped')
+
+                @property
+                def is_running(self):
+                    return self._thread is not None and self._thread.is_alive()
+                def _run(self):
+                    """Start camera and continuously read out data"""
+                    self.parent._log_info('Starting OCVCam and continuously display frames captured')
+                    while not self._stop_running:
+                        #Capture frame by frame
+                        start_timestamp = precision_timestamp()
+                        ret, frame = self.parent._ocvcam_camera.read()
+                        if not ret:
+                            self.parent._log_info('No frame captured!') #Small check with ret, used to ensure a frame is captured
+                            break
+                        if self._stop_running:
+                            self.parent._log_info('OCVCam called to stop running')
+                            break
+                        self.parent._log_debug('New frame captured!')
+                        frame = cv.resize(frame, (800, 640))
+                        self.parent._image_data = frame
+                        if self.parent._camera_benchmark:
+                            diff = precision_timestamp() - start_timestamp
+                            capture_freq = 1/diff
+                            self.parent._log_debug('Capture Freq: ' + str(capture_freq))
+                        self.parent._image_timestamp = datetime.utcnow()
+                        self.parent._got_image_event.set()
+                        self.parent._log_debug('Time: ' + str(self.parent._image_timestamp) \
+                                             + ' Size:' + str(self.parent._image_data.shape) \
+                                             + ' Type:' + str(self.parent._image_data.dtype))
+                        for func in self.parent._call_on_image:
+                            try:
+                                func(self.parent._image_data, self.parent._image_timestamp)
+                            except:
+                                self.parent._log_warning('Failed image callback', exc_info=True)
+
+                        self.parent._log_debug('Event handler finished.')
+
+            self._ocvcam_image_handler = OCVImageHandler(self)
+            self._ocvcam_is_init = True
+            self._ocvcam_image_handler.start()
+
         elif self.model.lower() == 'zwoasi':
             self._log_debug('Using zwoasi, try to initialise')
             assert self._zwoasi_camera_index is not None, 'ZWO camera index not determined from identity'
@@ -741,7 +829,7 @@ class Camera:
                     
             self._ascom_camera_imaging_handler = AscomCameraImagingLoopHandler(self)
             self._ascom_camera_imaging_handler.start_imaging_loop()
-            
+
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -749,7 +837,6 @@ class Camera:
     def deinitialize(self):
         """De-initialise the device and release hardware resources. Will stop the acquisition if it is running."""
         self._log_debug('De-initialising')
-        #assert self.is_init, 'Not initialised'
         if self.is_running:
             self._log_debug('Is running, stopping')
             self.stop()
@@ -770,6 +857,13 @@ class Camera:
                 self._log_exception('Failed to close task')
             self._log_debug('Trying to release PtGrey hardware resources')
             self._ptgrey_release()
+        elif self._ocvcam_camera:
+            self._log_debug('Deinitialising picam/opencv')
+            self.stop()
+            self._ocvcam_is_init = False
+            self._ocvcam_camera = None
+            self._log_debug('Deinitialised picam/opencv')
+            self._ocvcam_release()
         elif self._zwoasi_camera:
             self._log_debug('Found zwoasi camera, deinitialising')
             self._zwoasi_camera.close()
@@ -793,6 +887,9 @@ class Camera:
         if self.model.lower() == 'ptgrey':
             return ('flip_x', 'flip_y', 'rotate_90', 'plate_scale', 'rotation', 'binning', 'size_readout',
                     'frame_rate_auto', 'frame_rate', 'gain_auto', 'gain', 'exposure_time_auto', 'exposure_time')
+        elif self.model.lower() == 'ocvcam':
+            return ('flip_x', 'flip_y', 'rotate_90', 'plate_scale', 'rotation', 'binning', 'size_readout',\
+                     'gain', 'exposure_time')  
         elif self.model.lower() == 'zwoasi':
             return ('flip_x', 'flip_y', 'rotate_90', 'plate_scale', 'rotation', 'binning', 'size_readout',
                     'frame_rate_auto', 'gain', 'gain_auto', 'exposure_time_auto', 'exposure_time', 'color_bin')
@@ -811,12 +908,15 @@ class Camera:
         if self.model.lower() == 'ptgrey':
             self._log_debug('Using PtGrey camera. Will flip the received image array ourselves: ' +str(self._flipX))
             return self._flipX
+        elif self.model.lower() == 'ocvcam':
+            self._log_debug('Using OCVCam. Will flip the received image array ourselves: ' + str(self._flipX))       
+            return self._flipX
         elif self.model.lower() == 'zwoasi':
             flipmode = self._zwoasi_camera.get_control_value(zwoasi.ASI_FLIP)[0]
             return (flipmode == 1) or (flipmode == 3) # mode 1 is flip horizontal, mode 3 is flip both
         elif self.model.lower() == 'ascom':
             self._log_debug('Using ASCOM camera. Will flip the received image array ourselves: ' +str(self._flipX))
-            return self._flipX            
+            return self._flipX
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -829,6 +929,12 @@ class Camera:
             self._log_debug('Using PtGrey camera. Will flip the received image array ourselves.')
             self._flipX = flip
             self._log_debug('_flipX set to: '+str(self._flipX))
+        elif self.model.lower() == 'ocvcam':  
+            while flip: # don't work. something about 'bad argument' 
+                rot_frame = cv.flip(self._ocvcam_camera, 1) 
+                return rot_frame
+                # '1' means flip horizontally, '0' means flip vertically, '-1' means flip both 
+            
         elif self.model.lower() == 'zwoasi':
             if not flip: # Disable horizontal flipping
                 if not self.flip_y:
@@ -844,13 +950,14 @@ class Camera:
                 else:
                     # Flip both
                     self._zwoasi_camera.set_control_value(zwoasi.ASI_FLIP, 3)
-        elif self.model.lower() == 'ascom':
+        elif self.model.lower() == 'ascom': 
             self._log_debug('Using ASCOM camera. Will flip the received image array ourselves.')
             self._flipX = flip
             self._log_debug('_flipX set to: '+str(self._flipX))
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
+
 
     @property
     def flip_y(self):
@@ -865,6 +972,9 @@ class Camera:
             return (flipmode == 2) or (flipmode == 3) # mode 2 is flip vertical, mode 3 is flip both
         elif self.model.lower() == 'ascom':
             self._log_debug('Using ASCOM camera. Will flip the received image array ourselves: ' +str(self._flipX))
+            return self._flipY
+        elif self.model.lower() == 'ocvcam':
+            self._log_debug('Using ASCOM camera. Will flip the received image array ourselves: ' +str(self._flipY))       
             return self._flipY
         else:
             self._log_warning('Forbidden model string defined.')
@@ -897,6 +1007,11 @@ class Camera:
             self._log_debug('Using ASCOM camera. Will flip the received image array ourselves.')
             self._flipY = flip
             self._log_debug('_flipY set to: '+str(self._flipY))
+        elif self.model.lower() == 'ocvcam':  
+            while flip == True: # don't work. something about 'bad argument' 
+                rot_frame = cv.flip(self._ocvcam_camera, 0) 
+                return rot_frame 
+                # '1' means flip horizontally, '0' means flip vertically, '-1' means flip both 
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -906,7 +1021,7 @@ class Camera:
         """int: Get or set how many times the image should be rotated by 90 degrees. Applied *after* flip_x and flip_y.
         """
         assert self.is_init, 'Camera must be initialised'
-        if self.model.lower() in ('ptgrey','zwoasi','ascom'):
+        if self.model.lower() in ('ptgrey','zwoasi','ascom', 'ocvcam'):
             return self._rot90
         else:
             self._log_warning('Forbidden model string defined.')
@@ -916,10 +1031,12 @@ class Camera:
         self._log_debug('Set rot90 called with: '+str(k))
         assert self.is_init, 'Camera must be initialised'
         k = int(k)
-        if self.model.lower() in ('ptgrey','zwoasi','ascom'):
+        if self.model.lower() in ('ptgrey','zwoasi','ascom', 'ocvcam'):
             self._log_debug('Will rotate the received image array ourselves.')
             self._rot90 = k
-            self._log_debug('rot90 set to: '+str(self._rot90))
+            self._log_debug('rot90 set to: '+str(self._rot90)) 
+        # elif self.model.lower() == 'picam': # Rotating 90 degrees clockwise in OpenCV 
+        #     rot_frame = cv.rotate(self._ocvcam_camera, cv.ROTATE_90_CLOCKWISE)
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -975,6 +1092,9 @@ class Camera:
         elif self.model.lower() == 'ascom':
             self._log_debug('frame_rate_auto not supported in ASCOM')
             return False
+        elif self.model.lower() == 'ocvcam':
+            self._log_debug('OpenCV runs max FPS by default')
+            return False
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -991,7 +1111,7 @@ class Camera:
             self._log_debug('Got the node')
             if not PySpin.IsAvailable(node) or not PySpin.IsWritable(node):
                 self._log_debug('Node not available or not writable. Available:'+str(PySpin.IsAvailable(node))\
-                                   +' Writable:'+str(PySpin.IsWritable(node)))
+                                   +' Writable:'+str(PySpin.isWritable(node)))
                 raise RuntimeError('Unable to command camera')
             else:
                 self._log_debug('Setting frame rate')
@@ -1002,6 +1122,9 @@ class Camera:
                 self._log_warning('zwoasi does not support fixed frame rate, staying in auto mode.')
         elif self.model.lower() == 'ascom':
             self._log_debug('frame_rate_auto not supported in ASCOM')
+            return False
+        elif self.model.lower() == 'ocvcam':
+            self._log_debug('frame_rate_auto not supported in opencv')
             return False
         else:
             self._log_warning('Forbidden model string defined.')
@@ -1030,6 +1153,9 @@ class Camera:
         elif self.model.lower() == 'ascom':
             self._log_debug('frame_rate_auto not supported in ASCOM')
             return False
+        elif self.model.lower() == 'ocvcam':
+            self._log_debug('frame_rate_auto not supported in ASCOM')
+            return False
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1055,6 +1181,10 @@ class Camera:
         elif self.model.lower() == 'ascom':
             self._log_debug('frame rate not supported in ASCOM camera class')
             return 0
+        elif self.model.lower() == 'ocvcam':
+            pass # we just leave 30 for now, will come back
+            # return self._log_debug("CAP_PROP_FPS : '{}'".format(self._ocvcam_camera.get(cv.CAP_PROP_FPS)))
+            # # change to same code as exposure ^ doesn't seem to work  
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1087,6 +1217,8 @@ class Camera:
                         raise #Rethrows error
         elif self.model.lower() == 'ascom':
             self._log_debug('frame rate not supported in ASCOM camera class')
+        elif self.model.lower() == 'ocvcam':
+            self._ocvcam_camera.set(cv.CAP_PROP_FPS, frame_rate_hz)
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1128,6 +1260,10 @@ class Camera:
         elif self.model.lower() == 'ascom':
             self._log_debug('auto gain not implemented in ASCOM')
             return False
+        elif self.model.lower() == 'ocvcam':
+            self._log_debug('Auto gain by default for ocvcam')
+            return False # auto gain is on by default in ocvcam
+            # return False 
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1168,6 +1304,9 @@ class Camera:
         elif self.model.lower() == 'ascom':
             self._log_debug('auto gain not implemented in ASCOM')
             return False
+        elif self.model.lower() == 'ocvcam':
+            self._log_debug('Auto gain is on by default in ocvcam') # auto gain is on by default in ocvcam 
+            return False
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1201,6 +1340,9 @@ class Camera:
             return (min, max)
         elif self.model.lower() == 'ascom':
             return (self._ascom_camera.GainMin, self._ascom_camera.GainMax)
+        elif self.model.lower() == 'ocvcam':
+            # return (0,1)
+            pass # testing for now 
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1227,6 +1369,11 @@ class Camera:
             return self._zwoasi_camera.get_control_value(zwoasi.ASI_GAIN)[0]
         elif self.model.lower() == 'ascom':
             return self._ascom_camera.Gain
+        elif self.model.lower() == 'ocvcam':
+            # return self._ocvcam_camera.CAP_PROP_GAIN
+            # self._log_debug("CAP_PROP_GAIN : '{}'".format(self._ocvcam_camera.get(cv.CAP_PROP_GAIN))) 
+            return self._ocvcam_camera.get(cv.CAP_PROP_GAIN)  
+            # ^ testing how to get gain 
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1265,6 +1412,10 @@ class Camera:
                 self._log_debug('Requested gain out of allowable range ('+str(self._ascom_camera.GainMin)+':'+str(self._ascom_camera.GainMax)+').')
                 raise AssertionError('Requested gain ['+str(gain)+'] out of allowable range ('+str(self._ascom_camera.GainMin)+' - '+str(self._ascom_camera.GainMax)+').')
             self._ascom_camera.Gain = gain
+        elif self.model.lower() == 'ocvcam':
+            self._log_debug('Setting gain value on ocvcam')
+            self._log_debug('Set gain to: ' + str(self.gain))    
+            self._ocvcam_camera.set(cv.CAP_PROP_GAIN, gain) # set gain value for ocvcam    
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1301,6 +1452,11 @@ class Camera:
         elif self.model.lower() == 'ascom':
             self._log_debug('auto exposure not implemented in ASCOM')
             return False
+        elif self.model.lower() == 'ocvcam': # auto exposure is on by default 
+            # self._log_debug("CAP_PROP_AUTO_EXPOSURE : '{}'".format(self._ocvcam_camera.get(cv.CAP_PROP_AUTO_EXPOSURE)))
+            # return self._ocvcam_camera.get(cv.CAP_PROP_AUTO_EXPOSURE)
+            return False # Jiahau testing  
+            # get auto exposure value 
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1341,6 +1497,18 @@ class Camera:
         elif self.model.lower() == 'ascom':
             self._log_debug('auto exposure not implemented in ASCOM')
             return 0
+        elif self.model.lower() == 'ocvcam': # set auto exposure mode for OpenCV 
+            # # self._log_debug('we not gna auto exposure implemented in ocvcam')
+            # # return 0
+            # if auto:
+            #     self._log_info('Turning on auto exposure')
+            #     # self._ocvcam_camera.set(cv.CAP_PROP_AUTO_EXPOSURE, 0.75)
+            #     # or 
+            #     self._ocvcam_camera.set(cv.CAP_PROP_AUTO_EXPOSURE, 3) # need to test out '0.75' and '3' for auto mode
+            # else:
+            #     self._log_info('Turning off auto exposure')
+            # return False
+            pass 
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1374,6 +1542,9 @@ class Camera:
             return (min/1000, max/1000)
         elif self.model.lower() == 'ascom':
             return self._ascom_camera.ExposureMin, self._ascom_camera.ExposureMax
+        elif self.model.lower() == 'ocvcam': 
+            # return (0.01, 10) #need to check exposure time limit for opencv
+            pass
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1401,6 +1572,9 @@ class Camera:
         elif self.model.lower() == 'ascom':
             self._log_debug('Returning '+str(self._exposure_sec*1000))
             return self._exposure_sec*1000
+        elif self.model.lower() == 'ocvcam': 
+            # We return NA as exposure time is a feature that does not work with our IMX296 Sensor
+            return "NA"
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1441,11 +1615,35 @@ class Camera:
                 self._log_debug('Exposure time out of allowable range ('+str(self._ascom_camera.ExposureMin)+':'+str(self._ascom_camera.ExposureMax))
                 raise AssertionError('Requested exposure time ['+str(exposure_sec)+'] out of allowable range.')                
             self._exposure_sec = exposure_ms/1000
-            
+        elif self.model.lower() == 'ocvcam': # setting manual exposure mode for OpenCV
+            self._log_debug('Using opencv, setting exposure to ' + str(int(exposure_ms*1000)))
+            self._ocvcam_camera.set(cv.CAP_PROP_AUTO_EXPOSURE, 1) # need to test out '0.25' and '1' for manual mode 
+            self._ocvcam_camera.set(cv.CAP_PROP_EXPOSURE, exposure_ms) # need to input exposure value    
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
 
+    # @property
+    # def threshold(self):
+    #     """int: If pixel value is greater than threshold value, it is assigned one value (may be white), 
+    #     else it is assigned another value (may be black). Source image must be a greyscale image 
+    #     """
+    #     self._log_debug('Get threshold called')
+    #     assert self.is_init, 'Camera must be initialised'
+    #     if self.model.lower() == 'ocvcam':
+    #         pass # PLACEHOLDER
+    #     else:
+    #         self._log_warning('Forbidden model string defined.')
+    #         raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
+                    
+    # @threshold.setter
+    # def threshold(self, thresh_val):
+    #     self._log_debug('Set exposure time called with: '+ str(thresh_val))
+    #     assert self.is_init, 'Camera must be initialised'
+    #     thresh_val = int(thresh_val)
+    #     if self.model.lower() == 'ocvcam':  
+    #         retval, thresh = cv.threshold(self._ocvcam_camera, thresh_val, 255, cv.THRESH_BINARY) 
+    
     @property
     def binning(self):
         """int: Number of pixels to bin in each dimension (e.g. 2 gives 2x2 binning). Bins by summing.
@@ -1471,6 +1669,8 @@ class Camera:
                 return val_horiz
             except PySpin.SpinnakerException:
                 self._log_warning('Failed to read', exc_info=True)
+        elif self.model.lower() == 'ocvcam': 
+            return 1 #Set to 1 as we won't be using binning for spacecam
         elif self.model.lower() == 'zwoasi':
             return self._zwoasi_camera.get_bin()
         elif self.model.lower() == 'ascom':
@@ -1531,7 +1731,9 @@ class Camera:
                 self.size_readout = new_size
                 self._log_debug('Set new size to: ' + str(self.size_readout))
             except:
-                self._log_warning('Failed to scale readout after binning change', exc_info=True) 
+                self._log_warning('Failed to scale readout after binning change', exc_info=True)
+        elif self.model.lower() == 'ocvcam': 
+            return 1 #Set to 1 as we won't be using binning for spacecam
         elif self.model.lower() == 'zwoasi':
             self._log_debug('Using zwoasi, width must be multiple of 8 and height multiple of 2')
             new_size = [new_size[0] - (new_size[0] % 8), new_size[1] - (new_size[1] % 2)]
@@ -1592,6 +1794,8 @@ class Camera:
             return self._zwoasi_property['IsColorCam'] and self._color_bin
         elif self.model.lower() == 'ascom':
             return False
+        elif self.model.lower() == 'ocvcam': 
+            return False
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1609,6 +1813,8 @@ class Camera:
             self._log_debug('Set color bin to: ' + str(self._color_bin))
         elif self.model.lower() == 'ascom':
             raise RuntimeError('ascom cameras do not support color binning')
+        elif self.model.lower() == 'ocvcam':
+            raise RuntimeError('OCVCam uses a monochrome sensor.')
         else:
             self._log_warning('Forbidden model string defined.')                                                                                
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1647,6 +1853,8 @@ class Camera:
                 return (val_w, val_h)
             except:
                 self._log_debug('Unable to read ASCOM camera max image dimensions', exc_info=True)
+        elif self.model.lower() == 'ocvcam': 
+            return (1920, 1080) #just arbitrary for now
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1687,6 +1895,10 @@ class Camera:
                 return (val_w, val_h)
             except:
                 self._log_debug('Unable to read ASCOM camera image dimensions', exc_info=True)
+        elif self.model.lower() == 'ocvcam': 
+            x = self._ocvcam_camera.get(cv.CAP_PROP_FRAME_WIDTH)
+            y = self._ocvcam_camera.get(cv.CAP_PROP_FRAME_HEIGHT)
+            return (x,y)
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1773,6 +1985,10 @@ class Camera:
                     raise AssertionError('Unable to set ASCOM camera image size.')
             except:
                 raise AssertionError('Unable to read ASCOM camera image size limits.')
+        elif self.model.lower() == 'ocvcam': 
+            self._ocvcam_camera.set(cv.CAP_PROP_FRAME_WIDTH, size[0])
+            self._ocvcam_camera.set(cv.CAP_PROP_FRAME_HEIGHT, size[1])
+            
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1819,6 +2035,8 @@ class Camera:
             return self._zwoasi_camera is not None and self._zwoasi_image_handler.is_running
         elif self.model.lower() == 'ascom':
             return self._ascom_camera.Connected and self._ascom_camera_imaging_handler._is_running
+        elif self.model.lower() == 'ocvcam':
+            return self._ocvcam_image_handler.is_running #opencv got connected??? idk
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1849,6 +2067,10 @@ class Camera:
 
         elif self.model.lower() == 'ascom':
             self._ascom_camera_imaging_handler.start_imaging_loop()
+        elif self.model.lower() == 'ocvcam':
+            self._log_debug('Calling start on opencv/picam image handler')
+            self._logger.info('lesgoooooooooooo')
+            self._ocvcam_image_handler.start()
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))
@@ -1872,6 +2094,9 @@ class Camera:
             self._zwoasi_image_handler.stop()
         elif self.model.lower() == 'ascom':
             self._ascom_camera_imaging_handler.stop_imaging_loop()
+        elif self.model.lower() == 'ocvcam':
+            self._log_debug('Calling stop on opencv/picam image handler')
+            self._ocvcam_image_handler.stop() #hopium max max max max max
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))

@@ -33,7 +33,7 @@ from pathlib import Path
 import logging
 import sys
 from threading import Thread, Event
-import pythoncom
+#import pythoncom #zwoasi requirement, not needed
 from time import sleep, perf_counter as precision_timestamp
 from datetime import datetime
 from csv import writer as csv_write
@@ -51,6 +51,7 @@ from .hardware import Camera
 
 EPS = 10**-6  # Epsilon for use in non-zero check
 DEG = chr(176)  # Degree (unicode) character
+
 
 
 class ControlLoopThread:
@@ -137,11 +138,13 @@ class ControlLoopThread:
         debug_folder (pathlib.Path, optional): The folder for debug logging. If None (the default)
             the folder *pypogs*/debug will be used/created.
     """
+
     def __init__(self, parent, data_folder=None, debug_folder=None):
         """Create ControlLoopThread instance. See class documentation."""
         from . import system
         assert isinstance(parent, system.System), 'Parent must be pypogs.System instance.'
         # Logger setup
+        self.tracking_demo_bool = False #to bypass open loop pointing and go straight to spot tracking
         self._debug_folder = None
         if debug_folder is None:
             self.debug_folder = Path(__file__).parent / 'debug'
@@ -210,8 +213,8 @@ class ControlLoopThread:
         self._CCL_transition_th = 100.0  # Coarse sd required to move to coarse tracking (arcsec)
         # Fine closed loop
         self._FCL_enable = True
-        self._FCL_Kp = 1.0  # Feedback gain (deg/s per degree error)
-        self._FCL_Ki = 1/10  # Integral gain (1/integral time [s])
+        self._FCL_Kp = .75  # Feedback gain (deg/s per degree error)
+        self._FCL_Ki = 2/10  # Integral gain (1/integral time [s])
         self._FCL_speed_limit = .05  # deg/sec
         self._FCL_transition_th = 30.0  # Fine sd required to move to fine tracking (arcsec)
         # Spiralling acquisition settings
@@ -699,7 +702,8 @@ class ControlLoopThread:
         located, and initialised.
         """
         self._log_debug('Got start command')
-        assert self._parent.target.has_target, 'No target set'
+        if self.tracking_demo_bool == False:
+            assert self._parent.target.has_target, 'No target set'
         assert self._parent.alignment.is_aligned, 'Not aligned'
         assert self._parent.alignment.is_located, 'Not located'
         assert self._parent.is_init, 'System not initialized'
@@ -707,6 +711,14 @@ class ControlLoopThread:
         self._thread = Thread(target=self._run, name=self.name+'Worker')
         self._thread.start()
         self._log_info('Started tracking thread with name: '+self._thread.name)
+
+    def demo_bool_True(self):
+        self.tracking_demo_bool = True
+        self._log_info('demo_bool set to'+ str(self.tracking_demo_bool))
+    
+    def demo_bool_False(self):
+        self.tracking_demo_bool = False
+        self._log_info('demo_bool set to'+ str(self.tracking_demo_bool))
 
     def _run(self):
         """PRIVATE: Worker method, run by calling ControlLoopThread.start()"""
@@ -736,34 +748,48 @@ class ControlLoopThread:
             self._log_debug('Found allowable file: '+str(data_file))
         with open(data_file, 'w') as file:
             writer = csv_write(file)
-
-            writer.writerow(['T_UTC_ISO', 'T_ELAPSED', 'INDEX', 'MODE', 'TARG_MNT_ALT',
-                             'TARG_MNT_AZ', 'TARG_MNT_RATE_ALT', 'TARG_MNT_RATE_AZ',
-                             'TARG_ENU_ALT', 'TARG_ENU_AZ', 'MOUNT_MNT_ALT', 'MOUNT_MNT_AZ',
-                             'COARSE_EXIST', 'COARSE_TRACK', 'COARSE_ALT_TRACK', 'COARSE_ALT_MEAN',
-                             'COARSE_AZ_TRACK', 'COARSE_AZ_MEAN', 'COARSE_SD', 'COARSE_RMSE',
-                             'FINE_EXIST', 'FINE_TRACK', 'FINE_ALT_TRACK', 'FINE_ALT_MEAN',
-                             'FINE_AZ_TRACK', 'FINE_AZ_MEAN', 'FINE_SD', 'FINE_RMSE', 'FB_ERR_ALT',
-                             'FB_ERR_AZ', 'FB_INT_ALT', 'FB_INT_AZ', 'FB_ANGVEL_ALT',
-                             'FB_ANGVEL_AZ', 'FB_SATURATED', 'FB_COMMAND_ALT', 'FB_COMMAND_AZ',
-                             'FB_KP', 'FB_KI', 'FF_ALT', 'FF_AZ', 'REC_EXIST', 'REC_POWER',
-                             'REC_SMOOTH'])
+            
+            if self.tracking_demo_bool == False: #if doing full tracking
+                writer.writerow(['T_UTC_ISO', 'T_ELAPSED', 'INDEX', 'MODE', 'TARG_MNT_ALT',
+                                'TARG_MNT_AZ', 'TARG_MNT_RATE_ALT', 'TARG_MNT_RATE_AZ',
+                                'TARG_ENU_ALT', 'TARG_ENU_AZ', 'MOUNT_MNT_ALT', 'MOUNT_MNT_AZ',
+                                'COARSE_EXIST', 'COARSE_TRACK', 'COARSE_ALT_TRACK', 'COARSE_ALT_MEAN',
+                                'COARSE_AZ_TRACK', 'COARSE_AZ_MEAN', 'COARSE_SD', 'COARSE_RMSE',
+                                'FINE_EXIST', 'FINE_TRACK', 'FINE_ALT_TRACK', 'FINE_ALT_MEAN',
+                                'FINE_AZ_TRACK', 'FINE_AZ_MEAN', 'FINE_SD', 'FINE_RMSE', 'FB_ERR_ALT',
+                                'FB_ERR_AZ', 'FB_INT_ALT', 'FB_INT_AZ', 'FB_ANGVEL_ALT',
+                                'FB_ANGVEL_AZ', 'FB_SATURATED', 'FB_COMMAND_ALT', 'FB_COMMAND_AZ',
+                                'FB_KP', 'FB_KI', 'FF_ALT', 'FF_AZ', 'REC_EXIST', 'REC_POWER',
+                                'REC_SMOOTH'])
+            else:
+                writer.writerow(['T_UTC_ISO', 'T_ELAPSED', 'INDEX', 'MODE', 'TARG_MNT_ALT',
+                                'TARG_MNT_AZ', 'TARG_MNT_RATE_ALT', 'TARG_MNT_RATE_AZ',
+                                'MOUNT_MNT_ALT', 'MOUNT_MNT_AZ',
+                                'COARSE_EXIST', 'COARSE_TRACK', 'COARSE_ALT_TRACK', 'COARSE_ALT_MEAN',
+                                'COARSE_AZ_TRACK', 'COARSE_AZ_MEAN', 'COARSE_SD', 'COARSE_RMSE',
+                                'FINE_EXIST', 'FINE_TRACK', 'FINE_ALT_TRACK', 'FINE_ALT_MEAN',
+                                'FINE_AZ_TRACK', 'FINE_AZ_MEAN', 'FINE_SD', 'FINE_RMSE', 'FB_ERR_ALT',
+                                'FB_ERR_AZ', 'FB_INT_ALT', 'FB_INT_AZ', 'FB_ANGVEL_ALT',
+                                'FB_ANGVEL_AZ', 'FB_SATURATED', 'FB_COMMAND_ALT', 'FB_COMMAND_AZ',
+                                'FB_KP', 'FB_KI', 'FF_ALT', 'FF_AZ', 'REC_EXIST', 'REC_POWER',
+                                'REC_SMOOTH'])
         # Check if we need to slew
-        target_alt_az = self._parent.get_alt_az_of_target(start_time)[0]
-        mount_alt_az = np.array(self._parent.mount.get_alt_az())
-        difference = (target_alt_az - mount_alt_az + 180) % 360 - 180
-        difference_norm = np.sqrt(np.sum( difference ** 2))
-        if difference_norm > 5:  # If more than 5 degrees off
-            seconds_to_slew_each_axis_to_current_target_position = np.array((
-                abs(difference[0]) / self._parent.mount.max_rate[0],
-                abs(difference[1]) / self._parent.mount.max_rate[1]
-            ))
-            seconds_to_slew_to_current_target_position = apy_time_delta(np.max(seconds_to_slew_each_axis_to_current_target_position), format='sec')
-            self._log_info('angular distance to target: '+str(difference)+' deg')
-            self._log_info('time to slew each axis: '+str(seconds_to_slew_each_axis_to_current_target_position))
-            self._log_info('time to slew: '+str(seconds_to_slew_to_current_target_position))
-            self._log_info('Slewing to projected target position '+str(seconds_to_slew_to_current_target_position)+' seconds from now')
-            self._parent.slew_to_target(start_time + seconds_to_slew_to_current_target_position)
+        if self.tracking_demo_bool == False:
+            target_alt_az = self._parent.get_alt_az_of_target(start_time)[0]
+            mount_alt_az = np.array(self._parent.mount.get_alt_az())
+            difference = (target_alt_az - mount_alt_az + 180) % 360 - 180
+            difference_norm = np.sqrt(np.sum( difference ** 2))
+            if difference_norm > 5:  # If more than 5 degrees off
+                seconds_to_slew_each_axis_to_current_target_position = np.array((
+                    abs(difference[0]) / self._parent.mount.max_rate[0],
+                    abs(difference[1]) / self._parent.mount.max_rate[1]
+                ))
+                seconds_to_slew_to_current_target_position = apy_time_delta(np.max(seconds_to_slew_each_axis_to_current_target_position), format='sec')
+                self._log_info('angular distance to target: '+str(difference)+' deg')
+                self._log_info('time to slew each axis: '+str(seconds_to_slew_each_axis_to_current_target_position))
+                self._log_info('time to slew: '+str(seconds_to_slew_to_current_target_position))
+                self._log_info('Slewing to projected target position '+str(seconds_to_slew_to_current_target_position)+' seconds from now')
+                self._parent.slew_to_target(start_time + seconds_to_slew_to_current_target_position)
         while start_time > apy_time.now():  # Wait to start
             self._log_info('Waiting for target to rise.')
             sleep(min(10, (start_time - apy_time.now()).sec))
@@ -799,33 +825,69 @@ class ControlLoopThread:
                 self._log_debug('Actual loop dt = '+str(dt))
                 # TARGET position and rate (by discrete differentiation) in the MNT frame
                 step = .2
-                target_itrf_xyz = self._parent. \
-                    get_itrf_direction_of_target(loop_utctime + [0, step]*apy_unit.s)
-                # Convert all necessary coordinate frames
-                target_mnt_altaz = self._parent.alignment. \
-                    get_mnt_altaz_from_itrf_xyz(target_itrf_xyz)
-                target_mnt_rate = (((target_mnt_altaz[:, 1]
-                                     - target_mnt_altaz[:, 0] + 180) % 360) - 180) / step
-                target_mnt_altaz = target_mnt_altaz[:, 0]
-                # This one we keep just for fun ;)
-                target_enu_altaz = self._parent.alignment. \
-                    get_enu_altaz_from_itrf_xyz(target_itrf_xyz[:, 0])
+                
+                ##original code:
+                # target_itrf_xyz = self._parent. \
+                #     get_itrf_direction_of_target(loop_utctime + [0, step]*apy_unit.s)
+                # # Convert all necessary coordinate frames
+                # target_mnt_altaz = self._parent.alignment. \
+                #     get_mnt_altaz_from_itrf_xyz(target_itrf_xyz)
+                # target_mnt_rate = (((target_mnt_altaz[:, 1]
+                #                     - target_mnt_altaz[:, 0] + 180) % 360) - 180) / step
+                # target_mnt_altaz = target_mnt_altaz[:, 0]
+                # # This one we keep just for fun ;)
+                # target_enu_altaz = self._parent.alignment. \
+                #     get_enu_altaz_from_itrf_xyz(target_itrf_xyz[:, 0])
+                # # MOUNT position in the MNT frame
+                # mount_com_altaz = np.array(self._parent.mount.get_alt_az())
+                # mount_mnt_altaz = self._parent.alignment. \
+                #     get_mnt_altaz_from_com_altaz(mount_com_altaz)
+                
+                #attempt to bypass:
                 # MOUNT position in the MNT frame
                 mount_com_altaz = np.array(self._parent.mount.get_alt_az())
                 mount_mnt_altaz = self._parent.alignment. \
-                    get_mnt_altaz_from_com_altaz(mount_com_altaz)
+                    get_mnt_altaz_from_com_altaz(mount_com_altaz)    
+                
+                if self.tracking_demo_bool == True:
+                    
+                    target_mnt_altaz = mount_mnt_altaz
+                    self._log_debug('target_mnt_altaz fake:' + str(target_mnt_altaz))
+                    target_mnt_rate = np.array([0.00000000, 0.00000000])
+                    
+                
+                else:                 
+                    target_itrf_xyz = self._parent. \
+                        get_itrf_direction_of_target(loop_utctime + [0, step]*apy_unit.s)
+                    # Convert all necessary coordinate frames
+                    target_mnt_altaz = self._parent.alignment. \
+                        get_mnt_altaz_from_itrf_xyz(target_itrf_xyz)
+                    target_mnt_rate = (((target_mnt_altaz[:, 1]
+                                        - target_mnt_altaz[:, 0] + 180) % 360) - 180) / step
+                    self._log_debug('target_mnt_rate real:' + str(target_mnt_rate))
+                    target_mnt_altaz = target_mnt_altaz[:, 0]
+                    # This one we keep just for fun ;)
+                    target_enu_altaz = self._parent.alignment. \
+                        get_enu_altaz_from_itrf_xyz(target_itrf_xyz[:, 0])
+
+
+                    
+
 
                 ct_exists = self._parent.coarse_track_thread is not None
                 if ct_exists:
+                    self._log_debug('ct exists yay')
                     ct_has_track = self._parent.coarse_track_thread.has_track
                     ct_track_alt_az = self._parent.coarse_track_thread.track_alt_az
                     ct_mean_alt_az = self._parent.coarse_track_thread.mean_alt_az
                     ct_mean_abs_x_y = self._parent.coarse_track_thread.mean_x_y_absolute
                     ct_track_sd = self._parent.coarse_track_thread.track_sd
+                    self._log_debug('ct_track_sd: ' + str(ct_track_sd))
                     ct_rmse = self._parent.coarse_track_thread.rms_error
                     ct_search_rad = self._parent.coarse_track_thread.pos_search_rad
                     ct_search_pos = self._parent.coarse_track_thread.pos_search_x_y
                 else:
+                    self._log_debug('ct does not exist nay')
                     ct_has_track = None
                     ct_track_alt_az = (None, None)
                     ct_mean_alt_az = (None, None)
@@ -864,6 +926,7 @@ class ControlLoopThread:
                     self._log_debug('Mode switching started, currently in OL')
                     if self._CCL_enable and ct_exists:
                         self._log_debug('Evaluating CCL requrements')
+                        self._log_debug(str(ct_has_track) + " " + str(ct_track_sd))
                         if ct_has_track and ct_track_sd is not None:
                             self._log_debug('CCL track with SD: ' + str(ct_track_sd))
                             if ct_track_sd < self._CCL_transition_th:
@@ -873,7 +936,7 @@ class ControlLoopThread:
                                 if self._OL_Ki > 0 and self._CCL_Ki > 0:
                                     err_integral *= (self._OL_Kp * self._OL_Ki
                                                      / self._CCL_Kp / self._CCL_Ki)
-                elif mode == 'CCL':
+                elif mode == 'CCL': 
                     self._log_debug('Mode switching started, currently in CCL')
                     if not self._CCL_enable or not ct_exists or not ct_has_track:
                         self._log_debug('CCL not available')
@@ -1152,19 +1215,38 @@ class ControlLoopThread:
                 with open(data_file, 'a') as file:
                     writer = csv_write(file)
 
-                    writer.writerow([loop_utctime.isot, loop_timestamp, loop_index, mode,
-                                     target_mnt_altaz[0], target_mnt_altaz[1], target_mnt_rate[0],
-                                     target_mnt_rate[1], target_enu_altaz[0], target_enu_altaz[1],
-                                     mount_mnt_altaz[0], mount_mnt_altaz[1], ct_exists,
-                                     ct_has_track, ct_track_alt_az[0], ct_mean_alt_az[0],
-                                     ct_track_alt_az[1], ct_mean_alt_az[1], ct_track_sd, ct_rmse,
-                                     ft_exists, ft_has_track, ft_track_alt_az[0],
-                                     ft_mean_alt_az[0], ft_track_alt_az[1], ft_mean_alt_az[1],
-                                     ft_track_sd, ft_rmse, err_alt_az[0], err_alt_az[1],
-                                     err_integral[0], err_integral[1], angvel_correction[0],
-                                     angvel_correction[1], saturated, angvel_total[0],
-                                     angvel_total[1], fb_kp, fb_ki, ff_alt, ff_azi, rec_exists,
-                                     rec_power, rec_power_smooth])
+                    if self.tracking_demo_bool == False: #if doing full tracking
+                        writer.writerow([loop_utctime.isot, loop_timestamp, loop_index, mode,
+                                        target_mnt_altaz[0], target_mnt_altaz[1], target_mnt_rate[0],
+                                        target_mnt_rate[1], target_enu_altaz[0], target_enu_altaz[1], 
+                                        #adding gui view target position
+                                        mount_mnt_altaz[0], mount_mnt_altaz[1],  
+                                        #adding gui view goal position
+                                        ct_exists, ct_has_track, ct_track_alt_az[0], ct_mean_alt_az[0],
+                                        ct_track_alt_az[1], ct_mean_alt_az[1], ct_track_sd, ct_rmse,
+                                        ft_exists, ft_has_track, ft_track_alt_az[0],
+                                        ft_mean_alt_az[0], ft_track_alt_az[1], ft_mean_alt_az[1],
+                                        ft_track_sd, ft_rmse, err_alt_az[0], err_alt_az[1],
+                                        err_integral[0], err_integral[1], angvel_correction[0],
+                                        angvel_correction[1], saturated, angvel_total[0],
+                                        angvel_total[1], fb_kp, fb_ki, ff_alt, ff_azi, rec_exists,
+                                        rec_power, rec_power_smooth])
+                    else:
+                        writer.writerow([loop_utctime.isot, loop_timestamp, loop_index, mode,
+                                        target_mnt_altaz[0], target_mnt_altaz[1], target_mnt_rate[0],
+                                        target_mnt_rate[1], 
+                                        #adding gui view target position
+                                        mount_mnt_altaz[0], mount_mnt_altaz[1], 
+                                        #adding gui view goal position
+                                        ct_exists, ct_has_track, ct_track_alt_az[0], ct_mean_alt_az[0],
+                                        ct_track_alt_az[1], ct_mean_alt_az[1], ct_track_sd, ct_rmse,
+                                        ft_exists, ft_has_track, ft_track_alt_az[0],
+                                        ft_mean_alt_az[0], ft_track_alt_az[1], ft_mean_alt_az[1],
+                                        ft_track_sd, ft_rmse, err_alt_az[0], err_alt_az[1],
+                                        err_integral[0], err_integral[1], angvel_correction[0],
+                                        angvel_correction[1], saturated, angvel_total[0],
+                                        angvel_total[1], fb_kp, fb_ki, ff_alt, ff_azi, rec_exists,
+                                        rec_power, rec_power_smooth])
                 # Update loop
                 loop_index += 1
                 if self._min_loop_time is not None:
@@ -1386,6 +1468,11 @@ class TrackingThread:
                            + str(spot_tracker) + ' name=' + str(name) + ' image_folder='
                            + str(image_folder) + ' img_save_frequency=' + str(img_save_frequency)
                            + ' data_folder=' + str(data_folder))
+        # 
+        self._logger.info('TrackingThread called with camera=' + str(camera) + ' spot_tracker='
+                    + str(spot_tracker) + ' name=' + str(name) + ' image_folder='
+                    + str(image_folder) + ' img_save_frequency=' + str(img_save_frequency)
+                    + ' data_folder=' + str(data_folder))
         super().__init__()
         # Data folder setup
         self._data_folder = None
@@ -1399,6 +1486,7 @@ class TrackingThread:
         self._name = 'UnnamedTrackingThread'
         self._freq_target = None
         self._freq_actual = None
+        self._process_benchmark = False             # Boolean flag to indicate whether to print out the processing freq of each captured frame
         self._image_folder = None
         self._img_save_frequency = None
         self._stop_running = True
@@ -1433,7 +1521,7 @@ class TrackingThread:
         self._logger.debug(self.name + ': ' + msg, **kwargs)
 
     def _log_info(self, msg, **kwargs):
-        self._logger.info(self.name + ': ' + msg, **kwargs)
+        self._logger.info(str(self.name) + ': ' + str(msg), **kwargs)
 
     def _log_warning(self, msg, **kwargs):
         self._logger.warning(self.name + ': ' + msg, **kwargs)
@@ -1500,6 +1588,7 @@ class TrackingThread:
     def _run(self):
         """PRIVATE: Worker function for the thread to run."""
         self._logger.debug('Worker thread started: ' + self._thread.name)
+        self._logger.info('Worker thread started: ' + self._thread.name)
         if not self._camera.is_running:
             self._camera.start()
         self.spot_tracker.clear_tracker()
@@ -1530,7 +1619,11 @@ class TrackingThread:
         loop_index = 0
         try:
             while not self._stop_running:
-                image_wait_timeout = self._camera.exposure_time * 1.1 + 0.5
+
+                #NOTE: Originally image_wait_timeout = self._camera.exposure_time * 1.1 + 0.5
+                #      Modified as current spacecam does not allow exposure changes
+                image_wait_timeout = 1 * 1.1 + 0.5
+                
                 # Synchronisation and time management
                 if not self._process_image.wait(timeout=image_wait_timeout):
                     self._log_warning('Timeout waiting for image in loop')
@@ -1541,6 +1634,8 @@ class TrackingThread:
                 dt = loop_timestamp - old_timestamp
                 old_timestamp = loop_timestamp
                 self._actual_freq = 1/dt
+                if self._process_benchmark:
+                    self._log_debug('Processing Frequency: ' + str(self._actual_freq))
                 # Feedforward
                 ff_step_abs = np.sqrt(np.sum(np.array(self._feedforward_rate)**2))
                 self._log_debug('Feedforward step magnitude: ' + str(ff_step_abs))
@@ -1576,19 +1671,19 @@ class TrackingThread:
                         tiff_write(self._image_folder / imgname, image)
                         img_saved = True
                 # Get state
-                has_track = self.spot_tracker.has_track
-                rmse = self.spot_tracker.rms_error
-                (x, y) = self.spot_tracker.track_x_y
-                (mx, my) = self.spot_tracker.mean_x_y
-                sd = self.spot_tracker.track_sd
-                s = self.spot_tracker.track_sum
-                ms = self.spot_tracker.mean_sum
-                ss = self.spot_tracker.sd_sum
-                a = self.spot_tracker.track_area
-                ma = self.spot_tracker.mean_area
-                sa = self.spot_tracker.sd_area
-                ff_rate = self._feedforward_rate
-                offs_rate = self._goal_offset_rate
+                has_track = self.spot_tracker.has_track #
+                rmse = self.spot_tracker.rms_error #RMSE
+                (x, y) = self.spot_tracker.track_x_y #X_TRACK, Y_TRACK
+                (mx, my) = self.spot_tracker.mean_x_y #X_MEAN, Y_MEAN
+                sd = self.spot_tracker.track_sd #TRACK_SD
+                s = self.spot_tracker.track_sum #SUM_TRACK
+                ms = self.spot_tracker.mean_sum #SUM_MEAN
+                ss = self.spot_tracker.sd_sum #SUM_SD
+                a = self.spot_tracker.track_area #AREA_TRACK
+                ma = self.spot_tracker.mean_area #AREA_MEAN
+                sa = self.spot_tracker.sd_area #AREA_SD
+                ff_rate = self._feedforward_rate #FF_RATE_X, FF_RATE_Y
+                offs_rate = self._goal_offset_rate #OFFS_RATE_X, OFFS_RATE_Y
                 # Saving log
                 with open(data_file, 'a') as file:
                     writer = csv_write(file)
@@ -1694,7 +1789,7 @@ class TrackingThread:
         self._log_debug('Set camera called with: '+str(camera))
         assert not self.is_running, 'Can not set while running'
         if self.camera is not None:
-            self.camera.remove_event_callback(self._on_image_event)
+            self.camera.remove_event_callback(self._on_image_event) #why isit not working??
         if camera is not None:
             assert isinstance(camera, Camera), 'Camera must be pypogs.Camera object'
             self._camera = camera
@@ -1905,18 +2000,22 @@ class TrackingThread:
     def goal_offset_x_y(self, goal):
         self.spot_tracker.goal_offset_x_y = goal
 
+    #original code:
     def _on_image_event(self, image, timestamp, *args, **kwargs):
         """PRIVATE: Method to attach as camera callback."""
         if self.is_running:
             self._log_debug('Got image event, saving')
             self._image_data = image
+            #self._log_debug('check 1:' + str(image))
             self._image_timestamp = timestamp
+            #self._log_debug('check 2:' + str(self._image_timestamp))
             if self._process_image.is_set():
                 #self._log_warning('Already processing, dropping frame.')
                 pass
             else:
                 self._process_image.set()
                 self._log_debug('Set processing flag')
+
 
 
 class SpotTracker:
@@ -2958,6 +3057,8 @@ class SpotTracker:
                                            bg_sub_mode=self.bg_subtract_mode,
                                            return_moments=True, sigma=self.image_sigma_th,
                                            centroid_window=self.centroid_window)
+            self._logger.debug('ocean: has track centroids')
+            self._logger.debug(ret)
             success = False
             if ret[0][:, 0].size > 0:
                 x = (ret[0][:, 1] - imshape[1] / 2) * plate_scale
@@ -3005,6 +3106,8 @@ class SpotTracker:
                                            bg_sub_mode=self.bg_subtract_mode,
                                            return_moments=True, sigma=self.image_sigma_th,
                                            centroid_window=self.centroid_window)
+            self._logger.debug('ocean: no track centroids')
+            self._logger.debug(ret)
             if ret[0][:, 0].size > 0:
                 self._success_count += 1
                 self._fail_count = 0
