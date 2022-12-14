@@ -1522,7 +1522,10 @@ class HardwareFrame(ttk.Frame):
             if device_type == 'mount':
                 self.identity_entry.insert(0, '/dev/ttyUSB0')
             elif device_type == 'camera':
-                self.identity_entry.insert(0, 0)
+                if title == 'Fine camera':
+                    self.identity_entry.insert(0, 0)
+                if title == 'Coarse camera':
+                    self.identity_entry.insert(0, 1)
             else:
                 self.identity_entry.insert(0, device.identity if device and device.identity else '')
             ttk.Label(setup_frame, text='Name:').grid(row=r, column=0); r+=1
