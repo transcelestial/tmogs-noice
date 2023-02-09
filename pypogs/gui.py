@@ -37,6 +37,8 @@ import sys, os, traceback
 from cv2 import imread #ocean here testing
 import cv2 as cv
 
+import datetime
+
 COMMAND = 0
 MOUNT = 1
 ENU = 2
@@ -48,7 +50,7 @@ COARSE_CCL = 2
 FINE_FCL = 3
 DEMO = 4
 
-frame8 = None
+
 
 
 
@@ -474,6 +476,9 @@ class TrackingControlFrame(ttk.Frame):
 
 
 class LiveViewFrame(ttk.Frame):
+
+    
+
     """Extends tkinter.Frame for showing live camera images"""
     def __init__(self, master, pypogs_system, logger):
         self.logger = logger
@@ -492,6 +497,11 @@ class LiveViewFrame(ttk.Frame):
         self.bottom_frame1.grid(row=2, column=0, pady=(5,0))
         self.bottom_frame2 = ttk.Frame(self)
         self.bottom_frame2.grid(row=3, column=0, pady=(5,0))
+
+        self.prev_cam = 0
+        self.start_time = None
+        print('shld be start only')
+        self.n_frames = 0
 
         self.logger.debug('Filling top frame with label')
         ttk.Label(self.top_frame, text='Live View and Interactive Control').grid(row=0, column=0, padx=(250,0))
@@ -539,9 +549,10 @@ class LiveViewFrame(ttk.Frame):
         self.logger.debug('Creating entry and checkbox for image max value control')
         ttk.Label(self.bottom_frame1, text='Max Value:').grid(row=0, column=6, padx=(20,0))
         self.max_entry = ttk.Entry(self.bottom_frame1, width=10)
+        self.max_entry.insert(0,'1023')
         self.max_entry.grid(row=0, column=7, padx=(5,0))
         self.auto_max_variable = tk.BooleanVar()
-        self.auto_max_variable.set(True)
+        self.auto_max_variable.set(False)
         ttk.Checkbutton(self.bottom_frame1, variable=self.auto_max_variable, text='Auto')\
                                                                             .grid(row=0, column=8, padx=(5,0))
 
@@ -971,6 +982,15 @@ class LiveViewFrame(ttk.Frame):
         if cam == COARSE_CCL and (self.sys.coarse_camera is None or not self.sys.coarse_camera.is_init): cam = NONE
         if cam == FINE_FCL and (self.sys.fine_camera is None or not self.sys.fine_camera.is_init): cam = NONE
 
+        if self.prev_cam != cam:
+            if self.prev_cam == 0:
+                self.prev_cam = cam
+            else:
+                print("FPS: ", self.n_frames/(datetime.datetime.now() - self.start_time).total_seconds())
+                self.prev_cam = cam 
+                self.n_frames = 0
+            self.start_time = datetime.datetime.now()
+        
         self.logger.debug('After validity checks setting camera to {}'.format(cam))
         self.camera_variable.set(cam)
         img = None
@@ -1268,6 +1288,9 @@ class LiveViewFrame(ttk.Frame):
         if not self._update_stop:
             self.logger.debug('Calling update on self after {} ms'.format(self._update_after))
             self.after(self._update_after, self.update)
+
+        if cam != 0:
+            self.n_frames += 1
 
     def start(self, after=None):
         """Give number of milliseconds to wait between updates."""

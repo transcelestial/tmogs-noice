@@ -2152,6 +2152,13 @@ class SpotTracker:
         self._y = None
         self._sum = None
         self._area = None
+
+        # previous position
+        self._prev_x = None
+        self._prev_y = None
+        self._prev_sum = None
+        self._prev_area = None
+
         # Mean and sd estimator
         self._alpha = .1
         self._alpha_rmse = None
@@ -2586,7 +2593,7 @@ class SpotTracker:
 
     @failure_sd_penalty.setter
     def failure_sd_penalty(self, percent):
-        self._log_debug('Got set failure penalty with: '+str(percent))
+        self._logsum_min_debug('Got set failure penalty with: '+str(percent))
         if percent is None:
             self._fail_sd_penalty = None
         else:
@@ -3056,7 +3063,9 @@ class SpotTracker:
                                            sigma_mode=self.sigma_mode,
                                            bg_sub_mode=self.bg_subtract_mode,
                                            return_moments=True, sigma=self.image_sigma_th,
-                                           centroid_window=self.centroid_window)
+                                           centroid_window=self.centroid_window, 
+                                           max_returned=3
+                                           )
             self._logger.debug('ocean: has track centroids')
             self._logger.debug(ret)
             success = False
@@ -3105,7 +3114,9 @@ class SpotTracker:
                                            sigma_mode=self.sigma_mode,
                                            bg_sub_mode=self.bg_subtract_mode,
                                            return_moments=True, sigma=self.image_sigma_th,
-                                           centroid_window=self.centroid_window)
+                                           centroid_window=self.centroid_window, 
+                                           max_returned=3
+                                           )
             self._logger.debug('ocean: no track centroids')
             self._logger.debug(ret)
             if ret[0][:, 0].size > 0:
