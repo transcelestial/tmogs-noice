@@ -534,6 +534,65 @@ class Camera:
             self._log_debug('Registered ptgrey image event handler')
             self._log_info('Camera successfully initialised')
         
+        # elif self.model.lower() == 'ocvcam':                                #THIS CHUNK IS TESTTTT
+        #     self._log_debug('Using OpenCV, trying to initialise')
+
+        #     class OCVImageHandler():
+        #         def __init__(self, parent):
+        #             self.parent = parent
+        #             self._thread = None
+        #             self._stop_running = False
+                    
+        #             # opening video capture stream 
+        #             self._ocvcam_camera = cv.VideoCapture("/dev/video" + str(self._identity), cv.CAP_V4L2)
+        #             #Conversion from Y10 to RGB
+        #             self._ocvcam_camera.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc('Y','1','0',' '))
+        #             self._ocvcam_camera.set(cv.CAP_PROP_CONVERT_RGB, 0)
+        #             self._ocvcam_camera.set(cv.CAP_PROP_FPS, 59)
+        #             if self._ocvcam_camera.isOpened() is False :
+        #                 print("[Exiting]: Error accessing video stream.")
+        #                 exit(0)
+                        
+        #             # reading a single frame from _ocvcam_camera stream for initializing 
+        #             self.grabbed , self.frame = self._ocvcam_camera.read()
+        #             if self.grabbed is False :
+        #                 print('[Exiting] No more frames to read')
+        #                 exit(0)
+        #             # self.stopped is initialized to False 
+        #             self.stopped = True
+        #             # thread instantiation  
+        #             self.t = Thread(target=self.update, args=())
+        #             self.t.daemon = True # daemon threads run in background 
+
+        #             self.parent._log_info('OCVCam intialisation complete!')
+
+        #         # method to start thread 
+        #         def start(self):
+        #             self.parent._log_info('Starting OCVCam capture thread')
+        #             self.stopped = False
+        #             self.t.start()
+
+        #         # method passed to thread to read next available frame  
+        #         def update(self):
+        #             while True :
+        #                 if self.stopped is True :
+        #                     break
+        #                 self.grabbed , self.frame = self.vcap.read()
+        #                 if self.grabbed is False :
+        #                     print('[Exiting] No more frames to read')
+        #                     self.stopped = True
+        #                     break 
+        #             self.vcap.release()
+
+        #         # method to return latest read frame 
+        #         def read(self):
+        #             return self.frame
+                
+        #         # method to stop reading frames 
+        #         def stop(self):
+        #             self.parent._log_info('Stopping OCVCam capture thread')
+        #             self.stopped = True
+
         elif self.model.lower() == 'ocvcam':
             self._log_debug('Using OpenCV, trying to initialise')
             #Initializing the camera with OpenCV 
@@ -542,7 +601,7 @@ class Camera:
             #Conversion from Y10 to RGB
             self._ocvcam_camera.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc('Y','1','0',' '))
             self._ocvcam_camera.set(cv.CAP_PROP_CONVERT_RGB, 0)
-            self._ocvcam_camera.set(cv.CAP_PROP_FPS, 59)
+            self._ocvcam_camera.set(cv.CAP_PROP_FPS, 10)
 
             class OCVImageHandler():
                 def __init__(self, parent):
@@ -580,7 +639,7 @@ class Camera:
                             self.parent._log_info('OCVCam called to stop running')
                             break
                         self.parent._log_debug('New frame captured!')
-                        frame = cv.resize(frame, (800, 640))
+                        frame = cv.resize(frame, (800, 640), interpolation = cv.INTER_AREA)
                         self.parent._image_data = frame
                         if self.parent._camera_benchmark:
                             diff = precision_timestamp() - start_timestamp
@@ -1043,6 +1102,11 @@ class Camera:
 
     @property
     def plate_scale(self):
+        if self.model.lower() == 'ocvcam':
+            if self._name == 'CoarseCamera':
+                self._plate_scale = 14.2
+            elif self._name == 'FineCamera':
+                self._plate_scale = 0.35
         """float: Get or set the plate scale of the Camera in arcsec per pixel.
 
         This will not affect anything in this class but is used elsewhere. Set this to the physical pixel plate scale
@@ -1154,7 +1218,7 @@ class Camera:
             self._log_debug('frame_rate_auto not supported in ASCOM')
             return False
         elif self.model.lower() == 'ocvcam':
-            self._log_debug('frame_rate_auto not supported in ASCOM')
+            self._log_debug('frame_rate_auto not supported in ocvcam')
             return False
         else:
             self._log_warning('Forbidden model string defined.')
@@ -1988,7 +2052,7 @@ class Camera:
         elif self.model.lower() == 'ocvcam': 
             self._ocvcam_camera.set(cv.CAP_PROP_FRAME_WIDTH, size[0])
             self._ocvcam_camera.set(cv.CAP_PROP_FRAME_HEIGHT, size[1])
-            
+            # self._ocvcam_camera = cv.resize(self._ocvcam_camera, size)
         else:
             self._log_warning('Forbidden model string defined.')
             raise RuntimeError('An unknown (forbidden) model is defined: '+str(self.model))

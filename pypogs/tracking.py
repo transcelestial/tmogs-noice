@@ -37,6 +37,7 @@ from threading import Thread, Event
 from time import sleep, perf_counter as precision_timestamp
 from datetime import datetime
 from csv import writer as csv_write
+from math import floor
 
 # External imports:
 from astropy.time import Time as apy_time, TimeDelta as apy_time_delta
@@ -2135,9 +2136,9 @@ class SpotTracker:
         # Image extraction parameters
         self._crop = None
         self._downsample = None
-        self._filtsize = 7
-        self._sigma_mode = 'global_median_abs'
-        self._bg_subtract_mode = 'global_median'
+        self._filtsize = 25                             #default is 7, 15 to 25 is faster
+        self._sigma_mode = 'global_median_abs'         #default is global_median_abs, faster is global_root_square
+        self._bg_subtract_mode = 'local_mean'        #default is global_median, faster is local_mean
         self._image_sigma_th = 3.  # Standard deviations above noise to threshold at
         self._image_th = None
         self._binary_open = True
@@ -2147,6 +2148,7 @@ class SpotTracker:
         self._spot_min_sum = 100.  # Default min sum
         self._spot_max_sum = None
         self._spot_max_axis_ratio = 1.5  # Default maximum major/minor axis ratio
+        self._intensity_threshold = 1000
         # Latest position
         self._x = None
         self._y = None
@@ -2197,7 +2199,7 @@ class SpotTracker:
                 'sigma_mode', 'bg_subtract_mode', 'image_sigma_th', 'image_th', 'binary_open',
                 'centroid_window', 'spot_min_sum', 'spot_max_sum', 'spot_min_area',
                 'spot_max_area', 'spot_max_axis_ratio', 'active_crop_enable',
-                'active_crop_padding')
+                'active_crop_padding', 'intensity_threshold')
 
     @property
     def data_folder(self):
@@ -2321,6 +2323,22 @@ class SpotTracker:
         assert not pad < 0, 'Padding can not be negative'
         self._active_crop_padding = pad
         self._log_debug('Set active crop padding to: ' + str(self.active_crop_padding))
+
+    @property
+    def intensity_threshold(self):
+        """int: Get or set the number of pixels to pad on each side of the search region for active
+        cropping.
+        """
+        return self._intensity_threshold
+
+    @intensity_threshold.setter
+    def intensity_threshold(self, intensity):
+        self._log_debug('Got set intensity_threshold with: ' + str(intensity))
+        intensity = int(intensity)
+        assert not intensity < 0, 'intensity can not be negative'
+        self._intensity_threshold = intensity
+        self._log_debug('Set intensity threshold to: ' + str(self._intensity_threshold))
+
 
     @property
     def downsample(self):
@@ -3055,44 +3073,80 @@ class SpotTracker:
                 area_min = self.spot_min_area
                 area_max = self.spot_max_area
 
-            ret = get_centroids_from_image(img, image_th=self.image_th,
-                                           binary_open=self.binary_open, filtsize=self.filtsize,
-                                           crop=cr, downsample=ds, min_area=area_min,
-                                           max_area=area_max, min_sum=sum_min, max_sum=sum_max,
-                                           max_axis_ratio=self.spot_max_axis_ratio,
-                                           sigma_mode=self.sigma_mode,
-                                           bg_sub_mode=self.bg_subtract_mode,
-                                           return_moments=True, sigma=self.image_sigma_th,
-                                           centroid_window=self.centroid_window, 
-                                           max_returned=3
-                                           )
-            self._logger.debug('ocean: has track centroids')
-            self._logger.debug(ret)
             success = False
-            if ret[0][:, 0].size > 0:
-                x = (ret[0][:, 1] - imshape[1] / 2) * plate_scale
-                # Image Y coordinates increase down!
-                y = - (ret[0][:, 0] - imshape[0] / 2) * plate_scale
-                if None not in (x_search, y_search):
-                    dx = np.abs(x - x_search)
-                    dy = np.abs(y - y_search)
-                else:
-                    (x_mean, y_mean) = self.mean_x_y_absolute
-                    dx = np.abs(x - x_mean)
-                    dy = np.abs(y - y_mean)
-                index = (dx**2+dy**2).argmin()
-                x = float(x[index])
-                y = float(y[index])
-                dx = dx[index]
-                dy = dy[index]
-                if search_rad is None or (abs(dx) < search_rad and abs(dy) < search_rad):
-                    self._success_count += 1
-                    self._fail_count = 0
-                    summ = float(ret[1][index])
-                    area = float(ret[2][index])
-                    self.update_from_observation(x, y, summ, area)
-                    return_value = True
-                    success = True
+
+            if img.max() < self._intensity_threshold:
+                self.update_from_observation(self._prev_x, self._prev_y, self._prev_sum, self._prev_area)
+                return_value = True
+
+            else:
+                ret = get_centroids_from_image(img, image_th=self.image_th,
+                                            binary_open=self.binary_open, filtsize=self.filtsize,
+                                            crop=cr, downsample=ds, min_area=area_min,
+                                            max_area=area_max, min_sum=sum_min, max_sum=sum_max,
+                                            max_axis_ratio=self.spot_max_axis_ratio,
+                                            sigma_mode=self.sigma_mode,
+                                            bg_sub_mode=self.bg_subtract_mode,
+                                            return_moments=True, sigma=self.image_sigma_th,
+                                            centroid_window=self.centroid_window, 
+                                            max_returned=1
+                                            )
+                
+                if ret[0][:, 0].size > 0:
+                # if True:
+                    x = (ret[0][:, 1] - imshape[1] / 2) * plate_scale
+                    # Image Y coordinates increase down!
+                    y = - (ret[0][:, 0] - imshape[0] / 2) * plate_scale
+                    if None not in (x_search, y_search):
+                        dx = np.abs(x - x_search)
+                        dy = np.abs(y - y_search)
+                    else:
+                        (x_mean, y_mean) = self.mean_x_y_absolute
+                        dx = np.abs(x - x_mean)
+                        dy = np.abs(y - y_mean)
+                    index = (dx**2+dy**2).argmin()
+                    x = float(x[index])
+                    y = float(y[index])
+                    dx = dx[index]
+                    dy = dy[index]
+                    
+                    # print('x = ', x)
+                    # print('y = ', y)
+                    # print('dx = ', dx)
+                    # print('dy = ', dy)
+                    
+                    # x =  -826.0371704101562
+                    # y =  942.2028198242188
+                    # dx =  1.9408569
+                    # dy =  5.076477
+
+
+                    # print(x, y)
+                    # print(x + imshape[1] / 2, y + imshape[0] / 2)
+                    # print(floor(x + imshape[1] / 2), floor(y + imshape[0] / 2))
+                    # print('pixel intensity:', (img[floor(y + imshape[0] / 2)][floor(x + imshape[1] / 2)]))
+                    # print('max:', img.max())
+                    if search_rad is None or (abs(dx) < search_rad and abs(dy) < search_rad):
+                        self._success_count += 1
+                        self._fail_count = 0
+                        summ = float(ret[1][index])
+                        area = float(ret[2][index])
+                        # print('summ = ', summ)
+                        # print('area = ', area)
+
+                        # summ =  1299293.0
+                        # area =  68980.0
+
+
+                        self.update_from_observation(x, y, summ, area)
+
+                        self._prev_x = x
+                        self._prev_y = y
+                        self._prev_sum = summ
+                        self._prev_area = area
+                                        
+                        return_value = True
+                        success = True
             if not success:
                 self._success_count = 0
                 self._fail_count += 1
@@ -3104,57 +3158,96 @@ class SpotTracker:
                     self.clear_tracker()
 
         else:  # Does not have track
-            # Process image
-            ret = get_centroids_from_image(img, image_th=self.image_th,
-                                           binary_open=self.binary_open, filtsize=self.filtsize,
-                                           crop=cr, downsample=ds, min_area=self.spot_min_area,
-                                           max_area=self.spot_max_area, min_sum=self.spot_min_sum,
-                                           max_sum=self.spot_max_sum,
-                                           max_axis_ratio=self.spot_max_axis_ratio,
-                                           sigma_mode=self.sigma_mode,
-                                           bg_sub_mode=self.bg_subtract_mode,
-                                           return_moments=True, sigma=self.image_sigma_th,
-                                           centroid_window=self.centroid_window, 
-                                           max_returned=3
-                                           )
-            self._logger.debug('ocean: no track centroids')
-            self._logger.debug(ret)
-            if ret[0][:, 0].size > 0:
-                self._success_count += 1
-                self._fail_count = 0
-                x = (ret[0][:, 1] - imshape[1] / 2) * plate_scale
-                # Image Y coordinates increase down!
-                y = - (ret[0][:, 0] - imshape[0] / 2) * plate_scale
-                (x_search, y_search) = self.pos_search_x_y
-                if self._auto_aquire:
-                    summ = float(ret[1][0])
-                    area = float(ret[2][0])
-                    x = float(x[0])
-                    y = float(y[0])
-                    self.update_from_observation(x, y, summ, area)
-                    if self._success_count >= self._succ_to_start:
-                        self._log_info('Found track')
-                        self._has_track = True
-                elif None not in (x_search, y_search):
-                    dx = np.abs(x - x_search)
-                    dy = np.abs(y - y_search)
-                    index = (dx**2 + dy**2).argmin()
-                    x = float(x[index])
-                    y = float(y[index])
-                    dx = dx[index]
-                    dy = dy[index]
-                    if search_rad is None or (abs(dx) < search_rad and abs(dy) < search_rad):
+
+            if img.max() < self._intensity_threshold:
+                self.update_from_observation(self._prev_x, self._prev_y, self._prev_sum, self._prev_area)
+
+            else:
+                # Process image
+                ret = get_centroids_from_image(img, image_th=self.image_th,
+                                            binary_open=self.binary_open, filtsize=self.filtsize,
+                                            crop=cr, downsample=ds, min_area=self.spot_min_area,
+                                            max_area=self.spot_max_area, min_sum=self.spot_min_sum,
+                                            max_sum=self.spot_max_sum,
+                                            max_axis_ratio=self.spot_max_axis_ratio,
+                                            sigma_mode=self.sigma_mode,
+                                            bg_sub_mode=self.bg_subtract_mode,
+                                            return_moments=True, sigma=self.image_sigma_th,
+                                            centroid_window=self.centroid_window, 
+                                            max_returned=1
+                                            )
+                if ret[0][:, 0].size > 0:
+                # if True:
+                    self._success_count += 1
+                    self._fail_count = 0
+                    x = (ret[0][:, 1] - imshape[1] / 2) * plate_scale
+                    # Image Y coordinates increase down!
+                    y = - (ret[0][:, 0] - imshape[0] / 2) * plate_scale
+                    
+                    # print('x2 = ', x)
+                    # print('y2 = ', y)
+                    
+                    # x =  [ -824.5304 -4440.7085  3010.9312]
+                    # y =  [ 949.12946 3997.3594  2700.033  ]
+
+                    print('max2:', img.max())
+                    (x_search, y_search) = self.pos_search_x_y
+                    if self._auto_aquire:
                         summ = float(ret[1][0])
                         area = float(ret[2][0])
+                        x = float(x[0])
+                        y = float(y[0])
+
+                        # print('summ2 = ', summ)
+                        # print('area2 = ', area)
+                        # print('x3 = ', x)
+                        # print('y3 = ', y)
+
+                        # summ =  1306523.0
+                        # area =  71727.0
+                        # x =  -824.5303955078125
+                        # y =  949.1294555664062
+
+
                         self.update_from_observation(x, y, summ, area)
+                        self._prev_x = x
+                        self._prev_y = y
+                        self._prev_sum = summ
+                        self._prev_area = area
+
                         if self._success_count >= self._succ_to_start:
                             self._log_info('Found track')
                             self._has_track = True
-            else:
-                self._success_count = 0
-                self._fail_count += 1
-                self.update_from_observation(None, None, None, None)
-                self.clear_tracker()
+                    elif None not in (x_search, y_search):
+                        dx = np.abs(x - x_search)
+                        dy = np.abs(y - y_search)
+                        index = (dx**2 + dy**2).argmin()
+                        x = float(x[index])
+                        y = float(y[index])
+                        dx = dx[index]
+                        dy = dy[index]
+                        # print('x4 = ', x)
+                        # print('y4 = ', y)
+                        # print('dx3 = ', dx)
+                        # print('dy3 = ', dy)
+                        if search_rad is None or (abs(dx) < search_rad and abs(dy) < search_rad):
+                            summ = float(ret[1][0])
+                            area = float(ret[2][0])
+                            # print('summ3 = ', summ)
+                            # print('area3 = ', area)
+                            self.update_from_observation(x, y, summ, area)
+                            self._prev_x = x
+                            self._prev_y = y
+                            self._prev_sum = summ
+                            self._prev_area = area
+                            if self._success_count >= self._succ_to_start:
+                                self._log_info('Found track')
+                                self._has_track = True
+                else:
+                    self._success_count = 0
+                    self._fail_count += 1
+                    self.update_from_observation(None, None, None, None)
+                    self.clear_tracker()
         return return_value
 
     def update_from_observation(self, x, y, summ, area):

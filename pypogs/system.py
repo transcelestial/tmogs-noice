@@ -264,13 +264,9 @@ class System:
         self._logger.info('System instance created.')
         # Common targets list:
         self.saved_targets = {
+            'JANUS-1':  55564,
             'GPS 13': 24876,
-            'ISS':   25544,
-            'CSS':   48274,
-            'HST':   20580,
-            'Terra': 25994,
-            'SIMPL': 42983,
-            'SPOTTRACKER': 'SPOTTRACKER'
+            'ISS':   25544
         }
 
     def __del__(self):
