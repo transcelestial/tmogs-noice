@@ -1785,7 +1785,7 @@ class TargetFrame(ttk.Frame):
             ttk.Label(target_selection_frame, text='Select satellite:').grid(row=0, column=0, sticky=tk.W)
             self.target_selection_combo = ttk.Combobox(target_selection_frame, values=list(self.master.sys.saved_targets.keys()))
             self.target_selection_combo.grid(row=0, column=2, sticky="EW")
-            self.target_selection_combo.set('ISS')
+            self.target_selection_combo.set('JANUS-1')
             ttk.Button(target_selection_frame, text='Get', command=self.get_tle_for_selected_satellite).grid(row=0, column=3, sticky="EW")
 
             # Fetch TLE Input:

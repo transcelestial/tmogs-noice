@@ -210,11 +210,11 @@ class ControlLoopThread:
         self._CCL_enable = True
         self._CCL_Kp = .5  # Feedback gain (deg/s per degree error)
         self._CCL_Ki = 1/10  # Integral gain (1/integral time [s])
-        self._CCL_speed_limit = .05  # deg/sec internally
+        self._CCL_speed_limit = .5  # deg/sec internally
         self._CCL_transition_th = 100.0  # Coarse sd required to move to coarse tracking (arcsec)
         # Fine closed loop
         self._FCL_enable = True
-        self._FCL_Kp = .75  # Feedback gain (deg/s per degree error)
+        self._FCL_Kp = .6# Feedback gain (deg/s per degree error)
         self._FCL_Ki = 2/10  # Integral gain (1/integral time [s])
         self._FCL_speed_limit = .05  # deg/sec
         self._FCL_transition_th = 30.0  # Fine sd required to move to fine tracking (arcsec)
@@ -1082,6 +1082,7 @@ class ControlLoopThread:
                     speed_limit = self._CCL_speed_limit
                     if None in ct_track_alt_az:
                         self._log_debug('No update from coarse tracker')
+                        print('err_alt_az is set to zero')
                         err_alt_az = np.array([0, 0], dtype='float64')
                     else:
                         err_alt_az = np.array(ct_track_alt_az) / 3600
@@ -1121,6 +1122,10 @@ class ControlLoopThread:
                     err_integral += add_integral
                     self._log_debug('Integral calculated to: ' + str(err_integral))
                 # Calculate correction term
+                # print('fb_kp= ', fb_kp)
+                # print('err_alt_az= ', err_alt_az)
+                # print('fb_ki= ', fb_ki)
+                # print('err_integral= ', err_integral)
                 angvel_correction = fb_kp * (err_alt_az + fb_ki * err_integral)
                 (angvel_correction, saturated) = self._clip_feedback_rates(angvel_correction,
                                                                            speed_limit)
@@ -1151,8 +1156,13 @@ class ControlLoopThread:
                     self._log_debug('FB updated: ' + str(angvel_correction))
                     self._log_debug('Offset set: ' + str(rot_offset))
                 # Calculate total rates
+                print('angvel_correction= ', angvel_correction)
+                # print('target_mnt_rate= ', target_mnt_rate)
+                # print('mount_mnt_altaz= ', mount_mnt_altaz)
                 angvel_total = self._get_safe_rates(angvel_correction + target_mnt_rate,
                                                     mount_mnt_altaz)
+                
+    
                 self._log_debug('Sending rates: ' + str(angvel_total))
                 # Check post-calc clearing conditions
                 if saturated and self._reset_integral_if_saturated:
@@ -2117,6 +2127,8 @@ class SpotTracker:
         # Tracking parameters
         self._has_track = False
         self._success_count = 0
+        self._blink_count = 0
+        self._blink_fail = 5
         self._succ_to_start = 3
         self._fail_count = 0
         self._fail_to_drop = 10
@@ -3015,6 +3027,7 @@ class SpotTracker:
             bool: True if has_track *and* the provided image was successfully used to update the
                 tracker.
         """
+
         imshape = img.shape
         return_value = False
         ds = 1 if self.downsample is None else self.downsample
@@ -3077,9 +3090,23 @@ class SpotTracker:
 
             if img.max() < self._intensity_threshold:
                 self.update_from_observation(self._prev_x, self._prev_y, self._prev_sum, self._prev_area)
+                #print(self._prev_x, self._prev_y, self._prev_sum, self._prev_area)
+                self._blink_count += 1
+                # print(self._blink_count)
+                if self._blink_count >= self._blink_fail:
+                    # print('drop blink')
+                    success = False
+                    self._blink_count = 0
+                    self._prev_x = None
+                    self._prev_y = None
+                    self._prev_sum = None
+                    self._prev_area = None
+                else:
+                    success = True
                 return_value = True
 
             else:
+                self._blink_count = 0
                 ret = get_centroids_from_image(img, image_th=self.image_th,
                                             binary_open=self.binary_open, filtsize=self.filtsize,
                                             crop=cr, downsample=ds, min_area=area_min,
@@ -3118,13 +3145,16 @@ class SpotTracker:
                     # x =  -826.0371704101562
                     # y =  942.2028198242188
                     # dx =  1.9408569
-                    # dy =  5.076477
 
 
-                    # print(x, y)
-                    # print(x + imshape[1] / 2, y + imshape[0] / 2)
-                    # print(floor(x + imshape[1] / 2), floor(y + imshape[0] / 2))
-                    # print('pixel intensity:', (img[floor(y + imshape[0] / 2)][floor(x + imshape[1] / 2)]))
+                    # print('rel to middle x= ', floor(x/plate_scale))
+                    # print('rel to middle y= ', floor(y/plate_scale))
+                    # print('imshape= ', imshape)
+                    # # print(x + imshape[1] / 2, y + imshape[0] / 2)
+                    # print('absolute x= ', x/plate_scale + imshape[1] / 2)
+                    # print('absolute y= ', -y/plate_scale + imshape[0]/2)
+                    # print('pixel intensity:', img[floor(-y/plate_scale - imshape[0] / 2)][floor(x/plate_scale + imshape[1] / 2)])
+                    # print('bottom left= ', img[imshape[0]-1][0])
                     # print('max:', img.max())
                     if search_rad is None or (abs(dx) < search_rad and abs(dy) < search_rad):
                         self._success_count += 1
@@ -3161,8 +3191,19 @@ class SpotTracker:
 
             if img.max() < self._intensity_threshold:
                 self.update_from_observation(self._prev_x, self._prev_y, self._prev_sum, self._prev_area)
+                #print(self._prev_x, self._prev_y, self._prev_sum, self._prev_area)
+                self._blink_count += 1
+                # print(self._blink_count)
+                if self._blink_count >= self._blink_fail:
+                    # print('drop blink')
+                    self._blink_count = 0
+                    self._prev_x = None
+                    self._prev_y = None
+                    self._prev_sum = None
+                    self._prev_area = None
 
             else:
+                self._blink_count = 0
                 # Process image
                 ret = get_centroids_from_image(img, image_th=self.image_th,
                                             binary_open=self.binary_open, filtsize=self.filtsize,
@@ -3190,7 +3231,7 @@ class SpotTracker:
                     # x =  [ -824.5304 -4440.7085  3010.9312]
                     # y =  [ 949.12946 3997.3594  2700.033  ]
 
-                    print('max2:', img.max())
+                    # print('max2:', img.max())
                     (x_search, y_search) = self.pos_search_x_y
                     if self._auto_aquire:
                         summ = float(ret[1][0])
