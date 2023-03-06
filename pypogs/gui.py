@@ -110,6 +110,7 @@ class GUI:
         self.live_frame = LiveViewFrame(self.root, self.sys, self.logger)
         self.live_frame.grid(row=0, rowspan=2, column=2, padx=(0,10), pady=10)
         self.live_frame.start(gui_update_ms)
+
         self.logger.debug('Configuring main window columns')
         self.col1_frame = ttk.Frame(self.root)
         self.col1_frame.grid(row=1, column=0, padx=(10,0), pady=0, sticky=tk.E+tk.W+tk.N)
@@ -476,9 +477,6 @@ class TrackingControlFrame(ttk.Frame):
 
 
 class LiveViewFrame(ttk.Frame):
-
-    
-
     """Extends tkinter.Frame for showing live camera images"""
     def __init__(self, master, pypogs_system, logger):
         self.logger = logger
@@ -500,7 +498,6 @@ class LiveViewFrame(ttk.Frame):
 
         self.prev_cam = 0
         self.start_time = None
-        print('shld be start only')
         self.n_frames = 0
 
         self.logger.debug('Filling top frame with label')
@@ -570,6 +567,9 @@ class LiveViewFrame(ttk.Frame):
                                                             .grid(row=0, column=1)
         ttk.Button(self.bottom_frame2, text='Clear Track', command=self.clear_tracker_callback) \
                                                             .grid(row=0, column=2, padx=(5,0))
+        ttk.Button(self.bottom_frame2, text='Record Camera ', command=self.record_cam) \
+                                                            .grid(row=1, column=2, padx=(5,0))
+
 
         self.add_offset_variable = tk.BooleanVar()
         self.add_offset_variable.set(False)
@@ -644,6 +644,9 @@ class LiveViewFrame(ttk.Frame):
                 ErrorPopup(self, err, self.logger)
         else:
             self.logger.debug('No camera selected in clear tracker callback')
+
+    def record_cam(self):
+        pass
 
     def clear_offset_callback(self):
         """Clear the offset *of the preceding tracker*."""
@@ -956,7 +959,7 @@ class LiveViewFrame(ttk.Frame):
         try:
             self.sys.sys_demo_bool_True() #set system_demo_bool to True
             #self.sys.tar_demo_bool_True() #set target_demo_bool to True
-            self.sys.start_demo_tracking_v2() #uncomment this when the skipping stuff is done
+            self.sys.start_demo_tracking_v2() 
         except Exception as err:
             self.logger.debug('Did not start tracking', exc_info=True)
             ErrorPopup(self, err, self.logger)
@@ -1076,15 +1079,15 @@ class LiveViewFrame(ttk.Frame):
             except:
                 self.logger.debug('Failed', exc_info=True)
         
-        elif cam == NONE:
-            # if self.sys.star_camera and self.sys.coarse_camera and self.sys.fine_camera == None:
-            if self.is_demo_tracking == True:
-                self.logger.debug('Trying to get DEMO tracking data')
-                self.logger.info('Trying to get DEMO tracking data')
-                img = self.tracking_frame
-                self.start_demo_tracking_callback()
-            else:
-                img = None
+        # elif cam == NONE:
+        #     # if self.sys.star_camera and self.sys.coarse_camera and self.sys.fine_camera == None:
+        #     if self.is_demo_tracking == True:
+        #         self.logger.debug('Trying to get DEMO tracking data')
+        #         self.logger.info('Trying to get DEMO tracking data')
+        #         img = self.tracking_frame
+        #         self.start_demo_tracking_callback()
+        #     else:
+        #         img = None
 
 
         if img is not None:
@@ -1303,7 +1306,6 @@ class LiveViewFrame(ttk.Frame):
         """Stop updating."""
         self.logger.debug('LiveViewFrame got stop request')
         self._update_stop = True
-
 
 class HardwareFrame(ttk.Frame):
     """Extends tkinter.Frame for controlling System hardware"""

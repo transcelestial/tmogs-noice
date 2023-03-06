@@ -34,9 +34,7 @@ from threading import Thread
 from csv import writer as csv_write, reader as csv_reader
 from time import sleep, time as timestamp
 import socket
-import struct
-import math
-import re
+from struct import pack as struct_pack
 
 # External imports:
 import numpy as np
@@ -602,9 +600,7 @@ class System:
             assert isinstance(cam, Camera), 'Must be pypogs.Camera object'
             if self._coarse_track_thread is None:
                 self._logger.info('Creating coarse tracker thread')
-                self._coarse_track_thread = TrackingThread(name='CoarseTracker')
-                self._logger.info('we got a tracking thread')
-                self._logger.debug('we got a tracking thread')
+                self._coarse_track_thread = TrackingThread(name='CoarseTracker') 
             self._coarse_track_thread.camera = cam
         self._logger.debug('Set coarse camera to: ' + str(self.coarse_camera))
 
@@ -1145,11 +1141,8 @@ class System:
         self.system_demo_bool = False
         self.control_loop_thread.demo_bool_False()
 
-    # ocean here, demo tracking v2
     def start_demo_tracking_v2(self):
-        """Hopefully it will track bright spot, using closed loop feedback.
-
-        HOPIUM MAX.
+        """without OL pointint, it will track bright spot, using closed loop feedback.
         """
         assert self.mount is not None, 'No mount'
         #assert self.target.has_target, 'No target set'
@@ -1157,7 +1150,7 @@ class System:
         assert self.alignment.is_located, 'No telescope location'
         assert self.is_init, 'System not initialized'
         assert not self.is_busy, 'System is busy'
-        self._logger.info('Starting DEMO closed loop tracking')
+        self._logger.info('Starting DEMO closed loop tracking') 
         
         self.control_loop_thread.start()
 
@@ -2438,7 +2431,7 @@ class StellariumTelescopeServer:
                                     c.ra.value, c.dec.value)
                                 mount_ra = (mount_ra + 360) % 360
                                 #print(mount_ra, mount_dec)
-                                position_report = struct.pack('<hhqLll', 24, 0, 0, int(
+                                position_report = struct_pack('<hhqLll', 24, 0, 0, int(
                                     mount_ra/180*2147483648), int(mount_dec/90*1073741824), 0)  # ra, dec in degrees
                                 conn.send(position_report)
 
@@ -2602,7 +2595,7 @@ class TargetServer:
                             (mount_ra, mount_dec) = (c.ra.value, c.dec.value)
                             mount_ra = (mount_ra + 360) % 360
                             #print(mount_ra, mount_dec)
-                            position_report = struct.pack('<hhqLll', 24, 0, 0, int(mount_ra/180*2147483648), int(mount_dec/90*1073741824), 0) #ra, dec in degrees
+                            position_report = struct_pack('<hhqLll', 24, 0, 0, int(mount_ra/180*2147483648), int(mount_dec/90*1073741824), 0) #ra, dec in degrees
                             conn.send(position_report)
                             '''
 

@@ -533,71 +533,44 @@ class Camera:
             self._ptgrey_camera.RegisterEventHandler( self._ptgrey_event_handler )
             self._log_debug('Registered ptgrey image event handler')
             self._log_info('Camera successfully initialised')
-        
-        # elif self.model.lower() == 'ocvcam':                                #THIS CHUNK IS TESTTTT
-        #     self._log_debug('Using OpenCV, trying to initialise')
-
-        #     class OCVImageHandler():
-        #         def __init__(self, parent):
-        #             self.parent = parent
-        #             self._thread = None
-        #             self._stop_running = False
-                    
-        #             # opening video capture stream 
-        #             self._ocvcam_camera = cv.VideoCapture("/dev/video" + str(self._identity), cv.CAP_V4L2)
-        #             #Conversion from Y10 to RGB
-        #             self._ocvcam_camera.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc('Y','1','0',' '))
-        #             self._ocvcam_camera.set(cv.CAP_PROP_CONVERT_RGB, 0)
-        #             self._ocvcam_camera.set(cv.CAP_PROP_FPS, 59)
-        #             if self._ocvcam_camera.isOpened() is False :
-        #                 print("[Exiting]: Error accessing video stream.")
-        #                 exit(0)
-                        
-        #             # reading a single frame from _ocvcam_camera stream for initializing 
-        #             self.grabbed , self.frame = self._ocvcam_camera.read()
-        #             if self.grabbed is False :
-        #                 print('[Exiting] No more frames to read')
-        #                 exit(0)
-        #             # self.stopped is initialized to False 
-        #             self.stopped = True
-        #             # thread instantiation  
-        #             self.t = Thread(target=self.update, args=())
-        #             self.t.daemon = True # daemon threads run in background 
-
-        #             self.parent._log_info('OCVCam intialisation complete!')
-
-        #         # method to start thread 
-        #         def start(self):
-        #             self.parent._log_info('Starting OCVCam capture thread')
-        #             self.stopped = False
-        #             self.t.start()
-
-        #         # method passed to thread to read next available frame  
-        #         def update(self):
-        #             while True :
-        #                 if self.stopped is True :
-        #                     break
-        #                 self.grabbed , self.frame = self.vcap.read()
-        #                 if self.grabbed is False :
-        #                     print('[Exiting] No more frames to read')
-        #                     self.stopped = True
-        #                     break 
-        #             self.vcap.release()
-
-        #         # method to return latest read frame 
-        #         def read(self):
-        #             return self.frame
-                
-        #         # method to stop reading frames 
-        #         def stop(self):
-        #             self.parent._log_info('Stopping OCVCam capture thread')
-        #             self.stopped = True
 
         elif self.model.lower() == 'ocvcam':
             self._log_debug('Using OpenCV, trying to initialise')
             #Initializing the camera with OpenCV 
             #Based on the port number, it will initalize the 2nd camera
             self._ocvcam_camera = cv.VideoCapture("/dev/video" + str(self._identity), cv.CAP_V4L2)
+
+            # if self._identity == '0':
+            #     start_time = datetime.now().strftime('%Y-%m-%dT%H%M%S')
+            #     data_folder = Path(__file__).parent / 'fine_video_log'
+            #     video_log_name = Path(start_time + '_' + 'fine_video.avi')
+            #     data_file = data_folder / video_log_name
+            #     video_suffix = '.avi'
+            #     if data_file.exists():
+            #         self._log_debug('File name clash. Iterating...')
+            #         append = 1
+            #         while data_file.exists():
+            #             data_file = self.data_folder / (video_log_name.stem + str(append) + video_suffix)
+            #             append += 1
+            #         self._log_debug('Found allowable file: '+str(data_file))
+            #         print('Found allowable file: '+str(data_file))
+            # elif self._identity == '1':
+            #     start_time = datetime.now().strftime('%Y-%m-%dT%H%M%S')
+            #     data_folder = Path(__file__).parent / 'coarse_video_log'
+            #     video_log_name = Path(start_time + '_' + 'coarse_video.avi')
+            #     data_file = data_folder / video_log_name
+            #     video_suffix = '.avi'
+            #     if data_file.exists():
+            #         self._log_debug('File name clash. Iterating...')
+            #         append = 1
+            #         while data_file.exists():
+            #             data_file = self.data_folder / (video_log_name.stem + str(append) + video_suffix)
+            #             append += 1
+            #         self._log_debug('Found allowable file: '+str(data_file))
+            #         print('Found allowable file: '+str(data_file))
+            # video_log = cv.VideoWriter(str(data_file),cv.VideoWriter_fourcc('M','J','P','G'), 10, (800,640))
+            
+
             #Conversion from Y10 to RGB
             self._ocvcam_camera.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc('Y','1','0',' '))
             self._ocvcam_camera.set(cv.CAP_PROP_CONVERT_RGB, 0)
