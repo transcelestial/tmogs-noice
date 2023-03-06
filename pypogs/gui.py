@@ -489,12 +489,16 @@ class LiveViewFrame(ttk.Frame):
         self.logger.debug('Creating Frames')
         self.image_frame = ttk.Frame(self)
         self.image_frame.grid(row=1, column=0, sticky=tk.W+tk.E+tk.N+tk.S)
+
+        self.image_frame2 = ttk.Frame(self)
+        self.image_frame2.grid(row=2, column=0, sticky=tk.W+tk.E+tk.N+tk.S)
+
         self.top_frame = ttk.Frame(self)
         self.top_frame.grid(row=0, column=0)
         self.bottom_frame1 = ttk.Frame(self)
-        self.bottom_frame1.grid(row=2, column=0, pady=(5,0))
+        self.bottom_frame1.grid(row=3, column=0, pady=(5,0))
         self.bottom_frame2 = ttk.Frame(self)
-        self.bottom_frame2.grid(row=3, column=0, pady=(5,0))
+        self.bottom_frame2.grid(row=4, column=0, pady=(5,0))
 
         self.prev_cam = 0
         self.start_time = None
@@ -515,14 +519,20 @@ class LiveViewFrame(ttk.Frame):
                 .grid(row=0, column=5, padx=(5,0))
 
         self.logger.debug('Creating image canvas')
-        self.canvas_size = (800, 640)
+        self.canvas_size = (500, 400)
         self.image_size = self.canvas_size
         self.image_scale = 1
         self.canvas = tk.Canvas(self.image_frame, width=self.canvas_size[0], height=self.canvas_size[1], bg='black')
         self.canvas.pack()
         self.canvas.bind("<Button-1>", self.click_canvas_callback)
-        self.tk_image = None
         self.canvas_image = None
+
+        self.canvas2 = tk.Canvas(self.image_frame2, width=self.canvas_size[0], height=self.canvas_size[1], bg='black')
+        self.canvas2.pack()
+        self.canvas2.bind("<Button-1>", self.click_canvas2_callback)
+        self.canvas2_image = None
+
+        self.tk_image = None
         self.logger.debug('Creating radiobuttons for camera selection')
         self.is_demo_tracking = False #ocean here, for checking demo tracking
         self.tracking_frame = None #ocean here, for inputting tracking image
@@ -531,18 +541,18 @@ class LiveViewFrame(ttk.Frame):
         self.logger.debug('Filling bottom frame with interactive controls')
         ttk.Label(self.bottom_frame1, text='Camera (Tracker):').grid(row=0, column=0)
         self.camera_variable = tk.IntVar()
+        self.camera_variable_2 = tk.IntVar()
         
         self.camera_variable.set(NONE)
+        self.camera_variable_2.set(NONE)
         ttk.Radiobutton(self.bottom_frame1, text='None', variable=self.camera_variable, value=NONE) \
                 .grid(row=0, column=1, padx=(5,0))
         ttk.Radiobutton(self.bottom_frame1, text='Star (OL)', variable=self.camera_variable, value=STAR_OL) \
                 .grid(row=0, column=2, padx=(5,0))
         ttk.Radiobutton(self.bottom_frame1, text='Coarse (CCL)', variable=self.camera_variable, value=COARSE_CCL) \
                 .grid(row=0, column=4, padx=(5,0))
-        ttk.Radiobutton(self.bottom_frame1, text='Fine (FCL)', variable=self.camera_variable, value=FINE_FCL) \
+        ttk.Radiobutton(self.bottom_frame1, text='Fine (FCL)', variable=self.camera_variable_2, value=FINE_FCL) \
                 .grid(row=0, column=5, padx=(5,0))
-        # ttk.Radiobutton(self.bottom_frame1, text='DEMO', variable=self.camera_variable, value=DEMO) \
-        #         .grid(row=0, column=5, padx=(5,0))
         self.logger.debug('Creating entry and checkbox for image max value control')
         ttk.Label(self.bottom_frame1, text='Max Value:').grid(row=0, column=6, padx=(20,0))
         self.max_entry = ttk.Entry(self.bottom_frame1, width=10)
@@ -621,6 +631,7 @@ class LiveViewFrame(ttk.Frame):
         """Clear the track and the offset of the current tracker."""
         self.logger.debug('Clicked on clear tracker')
         cam = self.camera_variable.get()
+        cam2 = self.camera_variable_2.get()
         if cam == STAR_OL:
             self.logger.info('Clearing OL tracker.')
             try: #Only set offset to zero, there is nothing else to do
@@ -635,7 +646,7 @@ class LiveViewFrame(ttk.Frame):
             except Exception as err:
                 self.logger.debug('Could not clear coarse tracker', exc_info=True)
                 ErrorPopup(self, err, self.logger)
-        elif cam == FINE_FCL:
+        elif cam2 == FINE_FCL:
             self.logger.info('Clearing FCL tracker.')
             try:
                 self.sys.fine_track_thread.spot_tracker.clear_tracker()
@@ -652,6 +663,7 @@ class LiveViewFrame(ttk.Frame):
         """Clear the offset *of the preceding tracker*."""
         self.logger.debug('Clicked on clear offset')
         cam = self.camera_variable.get()
+        cam2 = self.camera_variable_2.get()
         if cam == COARSE_CCL or cam == STAR_OL:
             self.logger.info('Clearing OL offset.')
             try:
@@ -659,7 +671,7 @@ class LiveViewFrame(ttk.Frame):
             except Exception as err:
                 self.logger.debug('Could not set OL offset', exc_info=True)
                 ErrorPopup(self, err, self.logger)
-        elif cam == FINE_FCL:
+        elif cam2 == FINE_FCL:
             self.logger.info('Clearing CCL offset.')
             try:
                 self.sys.coarse_track_thread.goal_offset_x_y = np.array((0,0))
@@ -677,6 +689,7 @@ class LiveViewFrame(ttk.Frame):
             entry_value = float(self.exposure_entry.get())
             # Figure out the camera
             cam = self.camera_variable.get()
+            cam2 = self.camera_variable_2.get()
             self.logger.debug('Incrementing exposure for camera: ' + str(cam))
             if cam == STAR_OL:
                 old_exposure = self.sys.star_camera.exposure_time
@@ -688,7 +701,7 @@ class LiveViewFrame(ttk.Frame):
                 new_value = round(old_exposure*(1/1.26 if entry_value < old_exposure else 1.26), 2)
                 self.sys.coarse_camera.exposure_time = new_value
                 updated_value = self.sys.coarse_camera.exposure_time
-            elif cam == FINE_FCL:
+            elif cam2 == FINE_FCL:
                 old_exposure = self.sys.fine_camera.exposure_time
                 new_value = round(old_exposure*(1/1.26 if entry_value < old_exposure else 1.26), 2)
                 self.sys.fine_camera.exposure_time = new_value
@@ -696,6 +709,7 @@ class LiveViewFrame(ttk.Frame):
 
         elif event: # Hit enter
             cam = self.camera_variable.get()
+            cam2 = self.camera_variable_2.get()
             new_value = self.exposure_entry.get()
             self.logger.debug('Hit enter on exposure entry, set to camera ' + str(cam) + ' value ' + str(new_value))
             if cam == STAR_OL:
@@ -704,7 +718,7 @@ class LiveViewFrame(ttk.Frame):
             elif cam == COARSE_CCL:
                 self.sys.coarse_camera.exposure_time = new_value
                 updated_value = self.sys.coarse_camera.exposure_time
-            elif cam == FINE_FCL:
+            elif cam2 == FINE_FCL:
                 self.sys.fine_camera.exposure_time = new_value
                 updated_value = self.sys.fine_camera.exposure_time
         # Update box afterwords
@@ -752,16 +766,6 @@ class LiveViewFrame(ttk.Frame):
                 except Exception as err:
                     self.logger.debug('Could not set CCL goal', exc_info=True)
                     ErrorPopup(self, err, self.logger)
-            elif cam == FINE_FCL:
-                self.logger.debug('Setting goal for FCL tracker from Fine camera')
-                try:
-                    plate_scale = self.sys.fine_camera.plate_scale
-                    goal = [x_image / self.image_scale * plate_scale, y_image / self.image_scale * plate_scale]
-                    self.logger.info('Setting fine goal to: ' + str(goal))
-                    self.sys.fine_track_thread.goal_x_y = goal
-                except Exception as err:
-                    self.logger.debug('Could not set FCL goal', exc_info=True)
-                    ErrorPopup(self, err, self.logger)
             else:
                 self.logger.debug('No camera selected in canvas click callback')
             self.set_goal_variable.set(False)
@@ -799,7 +803,67 @@ class LiveViewFrame(ttk.Frame):
                 except Exception as err:
                     self.logger.debug('Could not set OL offset', exc_info=True)
                     ErrorPopup(self, err, self.logger)
-            elif cam == FINE_FCL:
+            else:
+                self.logger.debug('No camera selected in canvas click callback')
+            self.add_offset_variable.set(False)
+        elif self.set_search_variable.get() and not None in (x_image, y_image):
+            cam = self.camera_variable.get()
+            if cam == COARSE_CCL:
+                self.logger.debug('Setting search pos for CCL')
+                self.logger.info('Setting search pos for CCL')
+                plate_scale = self.sys.coarse_camera.plate_scale
+                search_pos = [x_image / self.image_scale * plate_scale, y_image / self.image_scale * plate_scale]
+                self.logger.info('Setting coarse search position to: ' + str(search_pos))
+                self.sys.coarse_track_thread.pos_search_x_y = search_pos
+            else:
+                self.logger.error('No camera selected in canvas click callback')
+            self.set_search_variable.set(False)
+     
+    # if img is not None:
+    #         if self.auto_max_variable.get(): #Auto set max scaling
+    #             maxval = int(np.max(img))
+    #             self.max_entry.delete(0, 'end')
+    #             self.max_entry.insert(0, str(maxval))
+    #             self.logger.debug('Using auto max scaling with maxval {}'.format(maxval))
+    #         else:
+    #             try:
+    #                 maxval = int(self.max_entry.get())
+    #                 self.logger.debug('Using manual maxval {}'.format(maxval))
+    #             except:
+    #                 self.logger.debug('Failed to convert max entry value {} to int'\
+    #                                    .format(self.max_entry.get()))
+    #                 maxval = 255
+
+    def click_canvas2_callback(self, event):
+        self.logger.debug('Canvas 2 click callback')
+        if event.x > self.image_size[0] or event.y > self.image_size[1]:
+            self.logger.debug('Outside image')
+            x_image = None
+            y_image = None
+        else:
+            x_image = event.x - self.image_size[0] / 2
+            y_image = self.image_size[1] / 2 - event.y #Camera coordinates are opposite
+            self.logger.debug('Image coordinates x:' + str(x_image) + ' y:' + str(y_image))
+        if self.set_goal_variable.get() and not None in (x_image, y_image):
+            cam2 = self.camera_variable_2.get()
+            
+            if cam2 == FINE_FCL:
+                self.logger.debug('Setting goal for FCL tracker from Fine camera')
+                try:
+                    plate_scale = self.sys.fine_camera.plate_scale
+                    goal = [x_image / self.image_scale * plate_scale, y_image / self.image_scale * plate_scale]
+                    self.logger.info('Setting fine goal to: ' + str(goal))
+                    self.sys.fine_track_thread.goal_x_y = goal
+                except Exception as err:
+                    self.logger.debug('Could not set FCL goal', exc_info=True)
+                    ErrorPopup(self, err, self.logger)
+            else:
+                self.logger.debug('No camera selected in canvas click callback')
+            self.set_goal_variable.set(False)
+        elif self.add_offset_variable.get() and not None in (x_image, y_image):
+            cam2 = self.camera_variable_2.get()
+            
+            if cam2 == FINE_FCL:
                 self.logger.debug('Setting offset for CCL tracker from Fine camera')
                 try:
                     plate_scale = self.sys.fine_camera.plate_scale
@@ -822,15 +886,9 @@ class LiveViewFrame(ttk.Frame):
                 self.logger.debug('No camera selected in canvas click callback')
             self.add_offset_variable.set(False)
         elif self.set_search_variable.get() and not None in (x_image, y_image):
-            cam = self.camera_variable.get()
-            if cam == COARSE_CCL:
-                self.logger.debug('Setting search pos for CCL')
-                self.logger.info('Setting search pos for CCL')
-                plate_scale = self.sys.coarse_camera.plate_scale
-                search_pos = [x_image / self.image_scale * plate_scale, y_image / self.image_scale * plate_scale]
-                self.logger.info('Setting coarse search position to: ' + str(search_pos))
-                self.sys.coarse_track_thread.pos_search_x_y = search_pos
-            elif cam == FINE_FCL:
+            cam2 = self.camera_variable_2.get()
+            
+            if cam2 == FINE_FCL:
                 self.logger.debug('Setting search pos for CCL')
                 plate_scale = self.sys.fine_camera.plate_scale
                 search_pos = [x_image / self.image_scale * plate_scale, y_image / self.image_scale * plate_scale]
@@ -853,62 +911,63 @@ class LiveViewFrame(ttk.Frame):
     #             except:
     #                 self.logger.debug('Failed to convert max entry value {} to int'\
     #                                    .format(self.max_entry.get()))
-    #                 maxval = 255
+    #                 maxval = 255    
 
+    # #WORK IN PROGRESS manually set goal of tracker
+    # def manual_set_goal(self):
+    #     # self.logger.debug('Resetting goal')
+    #     # if event.x > self.image_size[0] or event.y > self.image_size[1]:
+    #     #     self.logger.debug('Outside image')
+    #     #     x_image = None
+    #     #     y_image = None
+    #     # else:
+    #     #     x_image = event.x - self.image_size[0] / 2
+    #     #     y_image = self.image_size[1] / 2 - event.y #Camera coordinates are opposite
+    #     #     self.logger.debug('Image coordinates x:' + str(x_image) + ' y:' + str(y_image)):
+    #     print(self.alignment_x)
+    #     print(self.alignment_y)
+    #     try:
+    #         align_x = int(self.alignment_x)
+    #         align_y = int(self.alignment_y) 
+    #         self.logger.debug('Using manual alignment values: {}, {}'.format(align_x,align_y))
+    #         self.logger.info('Using manual alignment values: {}, {}'.format(align_x,align_y))
+    #     except:
+    #         self.logger.debug('Failed to convert alignment values {}, {} to int'\
+    #                         .format(align_x,align_y))
+    #         align_x = 0
+    #         align_y = 0
 
-    def manual_set_goal(self):
-        # self.logger.debug('Resetting goal')
-        # if event.x > self.image_size[0] or event.y > self.image_size[1]:
-        #     self.logger.debug('Outside image')
-        #     x_image = None
-        #     y_image = None
-        # else:
-        #     x_image = event.x - self.image_size[0] / 2
-        #     y_image = self.image_size[1] / 2 - event.y #Camera coordinates are opposite
-        #     self.logger.debug('Image coordinates x:' + str(x_image) + ' y:' + str(y_image)):
-        print(self.alignment_x)
-        print(self.alignment_y)
-        try:
-            align_x = int(self.alignment_x)
-            align_y = int(self.alignment_y) 
-            self.logger.debug('Using manual alignment values: {}, {}'.format(align_x,align_y))
-            self.logger.info('Using manual alignment values: {}, {}'.format(align_x,align_y))
-        except:
-            self.logger.debug('Failed to convert alignment values {}, {} to int'\
-                            .format(align_x,align_y))
-            align_x = 0
-            align_y = 0
-
-        cam = self.camera_variable.get()
-        if cam == STAR_OL:
-            self.logger.debug('Resetting goal for OL tracker from Star camera')
-            try:
-                goal = [align_x, align_y]
-                self.logger.info('Resetting OL goal to: ' + str(goal))
-                self.sys.control_loop_thread.OL_goal_x_y = goal
-            except Exception as err:
-                self.logger.debug('Could not set OL goal', exc_info=True)
-                ErrorPopup(self, err, self.logger)
-        elif cam == COARSE_CCL:
-            self.logger.debug('Resetting goal for CCL tracker from Coarse camera')
-            try:
-                goal = [align_x, align_y]
-                self.logger.info('Resetting coarse goal to: ' + str(goal))
-                self.sys.coarse_track_thread.goal_x_y = goal
-            except Exception as err:
-                self.logger.debug('Could not set CCL goal', exc_info=True)
-                ErrorPopup(self, err, self.logger)
-        elif cam == FINE_FCL:
-            self.logger.debug('Resetting goal for FCL tracker from Fine camera')
-            try:
-                goal = [align_x, align_y]
-                self.logger.info('Resetting fine goal to: ' + str(goal))
-                self.sys.fine_track_thread.goal_x_y = goal
-            except Exception as err:
-                self.logger.debug('Could not set FCL goal', exc_info=True)
-                ErrorPopup(self, err, self.logger)
-        else:
-            self.logger.debug('No camera selected in canvas click callback')
+    #     cam = self.camera_variable.get()
+    #     cam2 = self.camera_variable_2.get()
+    #     if cam == STAR_OL:
+    #         self.logger.debug('Resetting goal for OL tracker from Star camera')
+    #         try:
+    #             goal = [align_x, align_y]
+    #             self.logger.info('Resetting OL goal to: ' + str(goal))
+    #             self.sys.control_loop_thread.OL_goal_x_y = goal
+    #         except Exception as err:
+    #             self.logger.debug('Could not set OL goal', exc_info=True)
+    #             ErrorPopup(self, err, self.logger)
+    #     elif cam == COARSE_CCL:
+    #         self.logger.debug('Resetting goal for CCL tracker from Coarse camera')
+    #         try:
+    #             goal = [align_x, align_y]
+    #             self.logger.info('Resetting coarse goal to: ' + str(goal))
+    #             self.sys.coarse_track_thread.goal_x_y = goal
+    #         except Exception as err:
+    #             self.logger.debug('Could not set CCL goal', exc_info=True)
+    #             ErrorPopup(self, err, self.logger)
+    #     elif cam2 == FINE_FCL:
+    #         self.logger.debug('Resetting goal for FCL tracker from Fine camera')
+    #         try:
+    #             goal = [align_x, align_y]
+    #             self.logger.info('Resetting fine goal to: ' + str(goal))
+    #             self.sys.fine_track_thread.goal_x_y = goal
+    #         except Exception as err:
+    #             self.logger.debug('Could not set FCL goal', exc_info=True)
+    #             ErrorPopup(self, err, self.logger)
+    #     else:
+    #         self.logger.debug('No camera selected in canvas click callback')
 
 
     def reset_goal(self):
@@ -922,6 +981,7 @@ class LiveViewFrame(ttk.Frame):
         #     y_image = self.image_size[1] / 2 - event.y #Camera coordinates are opposite
         #     self.logger.debug('Image coordinates x:' + str(x_image) + ' y:' + str(y_image)):
         cam = self.camera_variable.get()
+        cam2 = self.camera_variable_2.get()
         if cam == STAR_OL:
             self.logger.debug('Resetting goal for OL tracker from Star camera')
             try:
@@ -940,7 +1000,7 @@ class LiveViewFrame(ttk.Frame):
             except Exception as err:
                 self.logger.debug('Could not set CCL goal', exc_info=True)
                 ErrorPopup(self, err, self.logger)
-        elif cam == FINE_FCL:
+        elif cam2 == FINE_FCL:
             self.logger.debug('Resetting goal for FCL tracker from Fine camera')
             try:
                 goal = [0, 0]
@@ -979,11 +1039,12 @@ class LiveViewFrame(ttk.Frame):
         """Update the canvas with an image"""
         self.logger.debug('LiveViewFrame got update request')
         cam = self.camera_variable.get()
+        cam2 = self.camera_variable_2.get()
         self.logger.debug('Selected camera is {} (1 star, 2 coarse, 3 fine, 0 none)'.format(cam))
         # Check if we have it, otherwise switch to none
         if cam == STAR_OL and (self.sys.star_camera is None or not self.sys.star_camera.is_init): cam = NONE
         if cam == COARSE_CCL and (self.sys.coarse_camera is None or not self.sys.coarse_camera.is_init): cam = NONE
-        if cam == FINE_FCL and (self.sys.fine_camera is None or not self.sys.fine_camera.is_init): cam = NONE
+        if cam2 == FINE_FCL and (self.sys.fine_camera is None or not self.sys.fine_camera.is_init): cam2 = NONE
 
         if self.prev_cam != cam:
             if self.prev_cam == 0:
@@ -995,6 +1056,7 @@ class LiveViewFrame(ttk.Frame):
             self.start_time = datetime.datetime.now()
         
         self.logger.debug('After validity checks setting camera to {}'.format(cam))
+        self.camera_variable_2.set(cam2)
         self.camera_variable.set(cam)
         img = None
 
@@ -1058,7 +1120,8 @@ class LiveViewFrame(ttk.Frame):
                 exposure = self.sys.coarse_camera.exposure_time
             except:
                 self.logger.debug('Failed', exc_info=True)
-        elif cam == FINE_FCL:
+        
+        if cam2 == FINE_FCL:
             self.logger.debug('Trying to get fine FCL data')
             try:
                 if not self.sys.fine_camera.is_running: self.sys.fine_camera.start()

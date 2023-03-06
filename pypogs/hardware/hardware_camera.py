@@ -612,7 +612,7 @@ class Camera:
                             self.parent._log_info('OCVCam called to stop running')
                             break
                         self.parent._log_debug('New frame captured!')
-                        frame = cv.resize(frame, (800, 640), interpolation = cv.INTER_AREA)
+                        frame = cv.resize(frame, (500, 400), interpolation = cv.INTER_AREA)
                         self.parent._image_data = frame
                         if self.parent._camera_benchmark:
                             diff = precision_timestamp() - start_timestamp
