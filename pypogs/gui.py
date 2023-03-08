@@ -582,18 +582,18 @@ class LiveViewFrame(ttk.Frame):
         
         self.set_goal_variable = tk.BooleanVar()
         self.set_goal_variable.set(False)
-        ttk.Checkbutton(self.bottom_frame2, text='Intercam Alignment', variable=self.set_goal_variable) \
+        ttk.Checkbutton(self.bottom_frame2, text='Intercam Click Alignment', variable=self.set_goal_variable) \
                                                             .grid(row=0, column=5, padx=(50,0))
         
         
         ttk.Label(self.bottom_frame2, text='X alignment:').grid(row=1, column=5, padx=(5,0))
         self.alignment_x_entry = ttk.Entry(self.bottom_frame2, width=10)
-        self.alignment_x_entry.insert(0,'0')
+        self.alignment_x_entry.insert(0,'0.0')
         self.alignment_x_entry.grid(row=1, column=6, padx=(5,0))
         
         ttk.Label(self.bottom_frame2, text='Y alignment:').grid(row=2, column=5, padx=(5,0))
         self.alignment_y_entry = ttk.Entry(self.bottom_frame2, width=10)
-        self.alignment_y_entry.insert(0,'0')
+        self.alignment_y_entry.insert(0,'0.0')
         self.alignment_y_entry.grid(row=2, column=6, padx=(5,0))
         
         ttk.Button(self.bottom_frame2, text='Manual Alignment', command=self.manual_set_goal) \
@@ -744,6 +744,12 @@ class LiveViewFrame(ttk.Frame):
                     goal = [x_image / self.image_scale * plate_scale, y_image / self.image_scale * plate_scale]
                     self.logger.info('Setting OL goal to: ' + str(goal))
                     self.sys.control_loop_thread.OL_goal_x_y = goal
+                    #update alignment entry box
+                    goal = [goal[0]/plate_scale * self.image_scale, goal[1]/plate_scale * self.image_scale]
+                    self.alignment_x_entry.delete(0, 'end')
+                    self.alignment_y_entry.delete(0, 'end')
+                    self.alignment_x_entry.insert(0,str(goal[0]))
+                    self.alignment_y_entry.insert(0,str(goal[1]))
                 except Exception as err:
                     self.logger.debug('Could not set OL goal', exc_info=True)
                     ErrorPopup(self, err, self.logger)
@@ -754,6 +760,12 @@ class LiveViewFrame(ttk.Frame):
                     goal = [x_image / self.image_scale * plate_scale, y_image / self.image_scale * plate_scale]
                     self.logger.info('Setting coarse goal to: ' + str(goal))
                     self.sys.coarse_track_thread.goal_x_y = goal
+                    #update alignment entry box
+                    goal = [goal[0]/plate_scale * self.image_scale, goal[1]/plate_scale * self.image_scale]
+                    self.alignment_x_entry.delete(0, 'end')
+                    self.alignment_y_entry.delete(0, 'end')
+                    self.alignment_x_entry.insert(0,str(goal[0]))
+                    self.alignment_y_entry.insert(0,str(goal[1]))
                 except Exception as err:
                     self.logger.debug('Could not set CCL goal', exc_info=True)
                     ErrorPopup(self, err, self.logger)
@@ -764,6 +776,12 @@ class LiveViewFrame(ttk.Frame):
                     goal = [x_image / self.image_scale * plate_scale, y_image / self.image_scale * plate_scale]
                     self.logger.info('Setting fine goal to: ' + str(goal))
                     self.sys.fine_track_thread.goal_x_y = goal
+                    #update alignment entry box
+                    goal = [goal[0]/plate_scale * self.image_scale, goal[1]/plate_scale * self.image_scale]
+                    self.alignment_x_entry.delete(0, 'end')
+                    self.alignment_y_entry.delete(0, 'end')
+                    self.alignment_x_entry.insert(0,str(goal[0]))
+                    self.alignment_y_entry.insert(0,str(goal[1]))
                 except Exception as err:
                     self.logger.debug('Could not set FCL goal', exc_info=True)
                     ErrorPopup(self, err, self.logger)
@@ -864,24 +882,24 @@ class LiveViewFrame(ttk.Frame):
     def manual_set_goal(self):
         align_x = 0
         align_y = 0
-
+        print(self.canvas_size)
         try:
-            assert -(self.canvas_size[1] /2) <= int(self.alignment_x_entry.get()) <= (self.canvas_size[1] /2), 'Cannot set X goal beyond frame size'
-            align_x = int(self.alignment_x_entry.get())
+            assert -float(self.canvas_size[0] /2) <= float(self.alignment_x_entry.get()) <= float(self.canvas_size[0] /2), 'Cannot set X goal beyond frame size'
+            align_x = float(self.alignment_x_entry.get())
         except Exception as err:
             self.logger.debug('Failed to set X goal', exc_info=True)
             ErrorPopup(self, err, self.logger)
             self.alignment_x_entry.delete(0, 'end')
-            self.alignment_x_entry.insert(0,'0')
+            self.alignment_x_entry.insert(0,'0.0')
         
         try:
-            assert -(self.canvas_size[0] /2) <= int(self.alignment_y_entry.get()) <= (self.canvas_size[0] /2), 'Cannot set Y goal beyond frame size'
-            align_y = int(self.alignment_y_entry.get())
+            assert -float(self.canvas_size[1] /2) <= float(self.alignment_y_entry.get()) <= float(self.canvas_size[1] /2), 'Cannot set Y goal beyond frame size'
+            align_y = float(self.alignment_y_entry.get())
         except Exception as err:
             self.logger.debug('Failed to set X goal', exc_info=True)
             ErrorPopup(self, err, self.logger)
             self.alignment_y_entry.delete(0, 'end')
-            self.alignment_y_entry.insert(0,'0')
+            self.alignment_y_entry.insert(0,'0.0')
         
         
         cam = self.camera_variable.get()
@@ -916,7 +934,7 @@ class LiveViewFrame(ttk.Frame):
                 self.logger.debug('Could not set FCL goal', exc_info=True)
                 ErrorPopup(self, err, self.logger)
         else:
-            self.logger.debug('No camera selected in canvas click callback')
+            self.logger.debug('No camera selected in canvas')
 
 
     def reset_goal(self):
