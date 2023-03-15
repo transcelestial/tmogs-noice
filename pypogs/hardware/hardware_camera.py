@@ -97,6 +97,9 @@ class Camera:
 
     def __init__(self, model=None, identity=None, name=None, auto_init=True, debug_folder=None, properties=[]):
         """Create Camera instance. See class documentation."""
+        
+        
+
         # Logger setup
         self._debug_folder = None
         if debug_folder is None:
@@ -457,6 +460,7 @@ class Camera:
         self._log_debug('Initialising')
         assert not self.is_init, 'Already initialised'
         assert not None in (self.model, ), 'Must define model before initialising'            
+
         if self.model.lower() == 'ptgrey':
             assert self.identity is not None, 'Must define identity of Pt Grey camera before initialising'            
             self._log_debug('Using PySpin, try to initialise')
@@ -539,38 +543,7 @@ class Camera:
             #Initializing the camera with OpenCV 
             #Based on the port number, it will initalize the 2nd camera
             self._ocvcam_camera = cv.VideoCapture("/dev/video" + str(self._identity), cv.CAP_V4L2)
-
-            # if self._identity == '0':
-            #     start_time = datetime.now().strftime('%Y-%m-%dT%H%M%S')
-            #     data_folder = Path(__file__).parent / 'fine_video_log'
-            #     video_log_name = Path(start_time + '_' + 'fine_video.avi')
-            #     data_file = data_folder / video_log_name
-            #     video_suffix = '.avi'
-            #     if data_file.exists():
-            #         self._log_debug('File name clash. Iterating...')
-            #         append = 1
-            #         while data_file.exists():
-            #             data_file = self.data_folder / (video_log_name.stem + str(append) + video_suffix)
-            #             append += 1
-            #         self._log_debug('Found allowable file: '+str(data_file))
-            #         print('Found allowable file: '+str(data_file))
-            # elif self._identity == '1':
-            #     start_time = datetime.now().strftime('%Y-%m-%dT%H%M%S')
-            #     data_folder = Path(__file__).parent / 'coarse_video_log'
-            #     video_log_name = Path(start_time + '_' + 'coarse_video.avi')
-            #     data_file = data_folder / video_log_name
-            #     video_suffix = '.avi'
-            #     if data_file.exists():
-            #         self._log_debug('File name clash. Iterating...')
-            #         append = 1
-            #         while data_file.exists():
-            #             data_file = self.data_folder / (video_log_name.stem + str(append) + video_suffix)
-            #             append += 1
-            #         self._log_debug('Found allowable file: '+str(data_file))
-            #         print('Found allowable file: '+str(data_file))
-            # video_log = cv.VideoWriter(str(data_file),cv.VideoWriter_fourcc('M','J','P','G'), 10, (800,640))
             
-
             #Conversion from Y10 to RGB
             self._ocvcam_camera.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc('Y','1','0',' '))
             self._ocvcam_camera.set(cv.CAP_PROP_CONVERT_RGB, 0)
@@ -600,6 +573,8 @@ class Camera:
                     return self._thread is not None and self._thread.is_alive()
                 def _run(self):
                     """Start camera and continuously read out data"""
+                    self._start_time = datetime.now()
+                    self._n_frames = 0
                     self.parent._log_info('Starting OCVCam and continuously display frames captured')
                     while not self._stop_running:
                         #Capture frame by frame
@@ -610,6 +585,8 @@ class Camera:
                             break
                         if self._stop_running:
                             self.parent._log_info('OCVCam called to stop running')
+                            print('OCV FPS: ', self._n_frames/(datetime.now() - self._start_time).total_seconds())
+
                             break
                         self.parent._log_debug('New frame captured!')
                         frame = cv.resize(frame, (800, 640), interpolation = cv.INTER_AREA)
@@ -628,6 +605,8 @@ class Camera:
                                 func(self.parent._image_data, self.parent._image_timestamp)
                             except:
                                 self.parent._log_warning('Failed image callback', exc_info=True)
+
+                        self._n_frames += 1
 
                         self.parent._log_debug('Event handler finished.')
 
@@ -869,6 +848,9 @@ class Camera:
     def deinitialize(self):
         """De-initialise the device and release hardware resources. Will stop the acquisition if it is running."""
         self._log_debug('De-initialising')
+
+
+
         if self.is_running:
             self._log_debug('Is running, stopping')
             self.stop()

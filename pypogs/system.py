@@ -890,7 +890,7 @@ class System:
         self._logger.debug('Got set tetra3 instance with' + str(tetra3))
         assert isinstance(tetra3, Tetra3), 'Must be tetra3 instance'
         self._tetra3 = tetra3
-        delf._logger.debug('Set tetra3 instace')
+        self._logger.debug('Set tetra3 instace')
 
     def do_auto_star_alignment(self, max_trials=None, rate_control=True, pos_list=None, settle_time_sec=None):
         """Do the auto star alignment procedure by taking eight star images across the sky.

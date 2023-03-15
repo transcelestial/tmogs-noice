@@ -112,7 +112,7 @@ sys.target_server.start(address='127.0.0.1', port=12345, poll_period=1)  # SkyTr
 
 # START GUI:
 try:
-    pypogs.GUI(sys, 50)
+    pypogs.GUI(sys, 100)
 except Exception:
     raise
 finally:

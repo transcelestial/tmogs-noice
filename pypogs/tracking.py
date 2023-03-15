@@ -44,10 +44,11 @@ from astropy.time import Time as apy_time, TimeDelta as apy_time_delta
 from astropy import units as apy_unit
 import numpy as np
 from tifffile import imwrite as tiff_write
+from cv2 import minMaxLoc, threshold, countNonZero, THRESH_TOZERO, moments, imwrite
 
 # Internal imports:
 sys.path.append('..')  # Add one directory up to path
-from tetra3 import get_centroids_from_image
+#from tetra3 import get_centroids_from_image
 from .hardware import Camera
 
 EPS = 10**-6  # Epsilon for use in non-zero check
@@ -144,6 +145,7 @@ class ControlLoopThread:
         """Create ControlLoopThread instance. See class documentation."""
         from . import system
         assert isinstance(parent, system.System), 'Parent must be pypogs.System instance.'
+
         # Logger setup
         self.tracking_demo_bool = False #to bypass open loop pointing and go straight to spot tracking
         self._debug_folder = None
@@ -697,6 +699,7 @@ class ControlLoopThread:
             self._thread.join()
         self._state_cache = self._empty_state_cache
         self._log_info('Control thread stopped.')
+        
 
     def start(self):
         """Starts the control loop in a background thread. Must have target and be aligned,
@@ -712,6 +715,7 @@ class ControlLoopThread:
         self._thread = Thread(target=self._run, name=self.name+'Worker')
         self._thread.start()
         self._log_info('Started tracking thread with name: '+self._thread.name)
+        
 
     def demo_bool_True(self):
         self.tracking_demo_bool = True
@@ -809,7 +813,9 @@ class ControlLoopThread:
         def seconds_since_start(): return precision_timestamp() - start_timestamp
         last_timestamp = None
         loop_utctime = start_time
-        loop_index = 0
+        self.loop_index = 0
+        
+
         # Only used if we do fine acquisition by spiralling
         CTFSP_t = 0.0
         CTFSP_offset = np.array([0, 0], dtype='float64')
@@ -1227,7 +1233,7 @@ class ControlLoopThread:
                     writer = csv_write(file)
 
                     if self.tracking_demo_bool == False: #if doing full tracking
-                        writer.writerow([loop_utctime.isot, loop_timestamp, loop_index, mode,
+                        writer.writerow([loop_utctime.isot, loop_timestamp, self.loop_index, mode,
                                         target_mnt_altaz[0], target_mnt_altaz[1], target_mnt_rate[0],
                                         target_mnt_rate[1], target_enu_altaz[0], target_enu_altaz[1], 
                                         #adding gui view target position
@@ -1243,7 +1249,7 @@ class ControlLoopThread:
                                         angvel_total[1], fb_kp, fb_ki, ff_alt, ff_azi, rec_exists,
                                         rec_power, rec_power_smooth])
                     else:
-                        writer.writerow([loop_utctime.isot, loop_timestamp, loop_index, mode,
+                        writer.writerow([loop_utctime.isot, loop_timestamp, self.loop_index, mode,
                                         target_mnt_altaz[0], target_mnt_altaz[1], target_mnt_rate[0],
                                         target_mnt_rate[1], 
                                         #adding gui view target position
@@ -1259,12 +1265,13 @@ class ControlLoopThread:
                                         angvel_total[1], fb_kp, fb_ki, ff_alt, ff_azi, rec_exists,
                                         rec_power, rec_power_smooth])
                 # Update loop
-                loop_index += 1
+                self.loop_index += 1
                 if self._min_loop_time is not None:
                     time_to_next = (loop_timestamp + self._min_loop_time) - seconds_since_start()
                 else:
                     time_to_next = 0
                 if time_to_next > EPS:
+                    #print('Sleeping for (ms): ' + str(np.round(time_to_next*1000)))
                     self._log_debug('Sleeping for (ms): ' + str(np.round(time_to_next*1000)))
                     sleep(time_to_next)
         except BaseException:
@@ -1627,7 +1634,7 @@ class TrackingThread:
         start_timestamp = precision_timestamp()
         old_timestamp = start_timestamp - 1
         last_img_timestamp = None
-        loop_index = 0
+        self.loop_index = 0
         try:
             while not self._stop_running:
 
@@ -1662,7 +1669,8 @@ class TrackingThread:
                 self.spot_tracker.goal_offset_x_y += offs_step
                 # Update spottracker from image
                 try:
-                    img_used = self.spot_tracker.update_from_image(image, self._camera.plate_scale, self._camera._name)
+                    img_used = self.spot_tracker.update_from_image_v2(image, self._camera.plate_scale, self._camera._name)
+                    #print('sanity:', img_used)
                 except BaseException:
                     self._log_exception('Failed to process image')
                     raise
@@ -1678,7 +1686,7 @@ class TrackingThread:
                             or (loop_timestamp-last_img_timestamp) > 1 / self._img_save_frequency):
                         last_img_timestamp = loop_timestamp
                         imgname = Path(start_datetime.strftime('%Y-%m-%dT%H%M%S') + '_'
-                                       + self.name + '_img_' + str(loop_index) + '.tiff')
+                                       + self.name + '_img_' + str(self.loop_index) + '.tiff')
                         self._log_debug('Saving image to disk as name: ' + str(imgname))
 
                         tiff_write(self._image_folder / imgname, image)
@@ -1700,12 +1708,14 @@ class TrackingThread:
                 # Saving log
                 with open(data_file, 'a') as file:
                     writer = csv_write(file)
-                    writer.writerow([loop_datetime_utc.isoformat(), loop_timestamp, loop_index,
-                                     int(img_saved), int(img_used), int(has_track), rmse, x, mx,
+                    writer.writerow([loop_datetime_utc.isoformat(), loop_timestamp, self.loop_index,
+                                     int(img_saved), 
+                                     int(img_used), 
+                                     int(has_track), rmse, x, mx,
                                      y, my, sd, s, ms, ss, a, ma, sa, ff_rate[0], ff_rate[1],
                                      ff_step[0], ff_step[1], offs_rate[0], offs_rate[1],
                                      offs_step[0], offs_step[1]])
-                loop_index += 1
+                self.loop_index += 1
                 self._process_image.clear()  # Clear processing flag, used to sync
         except BaseException:
             self._log_debug('Worker loop threw exception', exc_info=True)
@@ -1729,6 +1739,7 @@ class TrackingThread:
             self._log_debug('Failed to stop camera, continuing...', exc_info=True)
         self.spot_tracker.clear_tracker()
         self._log_info('Tracking thread stopped with name: '+str(self.name))
+        print("CL FPS: ", self.loop_index/(datetime.now() - self._start_time).total_seconds())
 
     def start(self):
         """Starts the tracking in a background thread. Must have Camera and SpotTracker."""
@@ -1741,6 +1752,7 @@ class TrackingThread:
         self._thread = Thread(target=self._run, name=self.name+'Worker')
         self._thread.start()
         self._log_info('Started worker thread.')
+        self._start_time = datetime.now()
 
     @property
     def is_running(self):
@@ -2162,7 +2174,7 @@ class SpotTracker:
         self._spot_min_sum = 100.  # Default min sum
         self._spot_max_sum = None
         self._spot_max_axis_ratio = 1.5  # Default maximum major/minor axis ratio
-        self._intensity_threshold = 1000
+        self._intensity_threshold = 1022
         # Latest position
         self._x = None
         self._y = None
@@ -2192,6 +2204,9 @@ class SpotTracker:
         self._rmse2 = None
         self._auto_aquire = True
         self._logger.info('SpotTracker instance created with name: ' + self.name + '.')
+
+        self.first_frame = True
+        self.save = False 
 
     def _log_debug(self, msg, **kwargs):
         self._logger.debug(self.name + ': ' + msg, **kwargs)
@@ -3096,25 +3111,32 @@ class SpotTracker:
             if img.max() < self._intensity_threshold:
                 print(img.max()) #uncomment to output image max
                 print('line3100, max<thresh') #uncomment to output label for when max<thresh
-                self._blink_count += 1
-                self.update_from_observation(self._prev_x, self._prev_y, self._prev_sum, self._prev_area, self._prev_intensity)
-                #print(self._prev_x, self._prev_y, self._prev_sum, self._prev_area)
-                
-                # print(self._blink_count)
-                if self._blink_count >= self._blink_fail:
-                    self._log_info('Bad spots tracked! Resetting spot tracking...')
-                    # print('drop blink')
-                    success = False
-                    self._blink_count = 0
-                    self._prev_x = None
-                    self._prev_y = None
-                    self._prev_sum = None
-                    self._prev_area = None
+
+                if self.first_frame:
+                    self.update_from_observation(None, None, None, None)
+                    print('Not yet detected the first blink')
+
                 else:
-                    success = True
-                return_value = True
+                    self._blink_count += 1
+                    self.update_from_observation(self._prev_x, self._prev_y, self._prev_sum, self._prev_area)
+                    #print(self._prev_x, self._prev_y, self._prev_sum, self._prev_area)
+                    
+                    # print(self._blink_count)
+                    if self._blink_count >= self._blink_fail:
+                        self._log_info('Bad spots tracked! Resetting spot tracking...')
+                        # print('drop blink')
+                        success = False
+                        self._blink_count = 0
+                        self._prev_x = None
+                        self._prev_y = None
+                        self._prev_sum = None
+                        self._prev_area = None
+                    else:
+                        success = True
+                    return_value = True
 
             else:
+                self.first_frame = False
                 if None not in (self._prev_x, self._prev_y, self._prev_sum, self._prev_area):
                     if img[floor(-self._prev_y/plate_scale - imshape[0] / 2)][floor(self._prev_x/plate_scale + imshape[1] / 2)] < self._intensity_threshold:
                         print('line3119, target<thresh')
@@ -3136,7 +3158,7 @@ class SpotTracker:
                                             )
                 
                 if ret[0][:, 0].size > 0:
-                # if True:
+                    # if True:
                     x = (ret[0][:, 1] - imshape[1] / 2) * plate_scale
                     # Image Y coordinates increase down!
                     y = - (ret[0][:, 0] - imshape[0] / 2) * plate_scale
@@ -3152,16 +3174,12 @@ class SpotTracker:
                     y = float(y[index])
                     dx = dx[index]
                     dy = dy[index]
-                    
-                    # print('x = ', x)
-                    # print('y = ', y)
-                    # print('dx = ', dx)
-                    # print('dy = ', dy)
-                    
-                    # x =  -826.0371704101562
-                    # y =  942.2028198242188
-                    # dx =  1.9408569
 
+                    # print(' ')
+                    # print('dx: ', dx)
+                    # print('dy: ', dy)
+                    # print('search_rad: ', search_rad)
+                    # print(' ')
 
                     # print('rel to middle x= ', floor(x/plate_scale))
                     # print('rel to middle y= ', floor(y/plate_scale))
@@ -3185,7 +3203,7 @@ class SpotTracker:
                         # area =  68980.0
 
                         
-                        self.update_from_observation(x, y, summ, area, intensity_check)
+                        self.update_from_observation(x, y, summ, area)
 
                         self._prev_x = x
                         self._prev_y = y
@@ -3197,7 +3215,7 @@ class SpotTracker:
             if not success:
                 self._success_count = 0
                 self._fail_count += 1
-                self.update_from_observation(None, None, None, None, None)
+                self.update_from_observation(None, None, None, None)
                 self.penalize_track(percentage=self.failure_sd_penalty)
                 if self._fail_count >= self._fail_to_drop:
                     self._log_info('Lost track.')
@@ -3279,7 +3297,7 @@ class SpotTracker:
                     intensity_check = img[floor(-y/plate_scale - imshape[0] / 2)][floor(x/plate_scale + imshape[1] / 2)]
 
 
-                    self.update_from_observation(x, y, summ, area, intensity_check)
+                    self.update_from_observation(x, y, summ, area)
                     self._prev_x = x
                     self._prev_y = y
                     self._prev_sum = summ
@@ -3306,7 +3324,7 @@ class SpotTracker:
                         area = float(ret[2][0])
                         # print('summ3 = ', summ)
                         # print('area3 = ', area)
-                        self.update_from_observation(x, y, summ, area, intensity_check)
+                        self.update_from_observation(x, y, summ, area)
                         self._prev_x = x
                         self._prev_y = y
                         self._prev_sum = summ
@@ -3317,11 +3335,346 @@ class SpotTracker:
             else:
                 self._success_count = 0
                 self._fail_count += 1
-                self.update_from_observation(None, None, None, None, None)
+                self.update_from_observation(None, None, None, None)
                 self.clear_tracker()
         return return_value
 
-    def update_from_observation(self, x, y, summ, area, intensity):
+    def update_from_image_v2(self, img, plate_scale=1, name=None):
+        
+        imshape = img.shape
+        height_img = imshape[0]
+        width_img = imshape[1]
+        
+        padding = 50
+        return_value = False
+        ds = 1 if self.downsample is None else self.downsample
+        if plate_scale is None:
+            plate_scale = 1
+        assert isinstance(plate_scale, (int, float)), \
+            'Plate scale must be a number (int or float) or None'
+        
+        
+
+        # If we have a track we only need to look in the allowed region anyway (if active crop)
+        search_rad = self.pos_search_rad
+        (x_search, y_search) = self.pos_search_x_y
+        
+        if self._has_track:
+            if self._sum_sig is not None:
+                sum_max = self.mean_sum + self._sum_sig*self.sd_sum
+                sum_min = self.mean_sum - self._sum_sig*self.sd_sum
+                if self.spot_min_sum is not None:
+                    sum_min = max(self.spot_min_sum, sum_min)
+                if self.spot_max_sum is not None:
+                    sum_max = min(self.spot_max_sum, sum_max)
+            else:
+                sum_min = self.spot_min_sum
+                sum_max = self.spot_max_sum
+            if self._area_sig is not None:
+                area_max = self.mean_area + self._area_sig*self.sd_area
+                area_min = self.mean_area - self._area_sig*self.sd_area
+                if self.spot_min_area is not None:
+                    area_min = max(self.spot_min_area, area_min)
+                if self.spot_max_area is not None:
+                    area_max = min(self.spot_max_area, area_max)
+            else:
+                area_min = self.spot_min_area
+                area_max = self.spot_max_area
+
+            success = False
+            
+
+            if img.max() < self._intensity_threshold:
+                # print(img.max()) #uncomment to output image max
+                # print('line3100, max<thresh') #uncomment to output label for when max<thresh
+
+                if self.first_frame:
+                    self.update_from_observation(None, None, None, None)
+                    print('Not yet detected the first blink')
+
+                #else:
+                
+                self._blink_count += 1
+                #print('(line3397) blink no: ', self._blink_count)
+                self.update_from_observation(self._prev_x, self._prev_y, self._prev_sum, self._prev_area)
+                #print(self._prev_x, self._prev_y, self._prev_sum, self._prev_area)
+                
+                # print(self._blink_count)
+                if self._blink_count >= self._blink_fail:
+                    self._log_info('Bad spots tracked! Resetting spot tracking...')
+                    # print('drop blink')
+                    success = False
+                    self._blink_count = 0
+                    #print('(line3407) blink no: ', self._blink_count)
+                    self._prev_x = None
+                    self._prev_y = None
+                    self._prev_sum = None
+                    self._prev_area = None
+                else:
+                    success = True
+                return_value = True
+
+            else:
+                self.first_frame = False
+                if None not in (self._prev_x, self._prev_y, self._prev_sum, self._prev_area):
+                    if img[floor(-self._prev_y/plate_scale - imshape[0] / 2)][floor(self._prev_x/plate_scale + imshape[1] / 2)] < self._intensity_threshold:
+                        #print('line3119, target<thresh')
+                        self._blink_count += 1
+                        #print('(line3422) blink no: ', self._blink_count)
+
+                    else:
+                        self._blink_count = 0
+                        #print('(line3426) blink no: ', self._blink_count)
+
+                        
+                (minVal, maxVal, minLoc, maxLoc) = minMaxLoc(img)
+
+                if search_rad != None:
+                    width_start = min(max(maxLoc[0]-search_rad, 0), width_img )
+                    width_end = min(max(maxLoc[0] + search_rad, 0), width_img)
+                    height_start = min(max(maxLoc[1]-search_rad, 0), height_img)
+                    height_end = min(max(maxLoc[1]+search_rad, 0), height_img)
+                else:
+                    width_start = min(max(maxLoc[0]-500, 0), width_img )
+                    width_end = min(max(maxLoc[0] + 500, 0), width_img)
+                    height_start = min(max(maxLoc[1]-500, 0), height_img)
+                    height_end = min(max(maxLoc[1]+500, 0), height_img)
+
+                crop_frame = img[floor(height_start):floor(height_end),
+                                floor(width_start):floor(width_end)]  # height, width
+                ret, thresh1 = threshold(crop_frame, self._intensity_threshold, 1023, THRESH_TOZERO)
+                if self.save == False:
+                    imwrite('/home/pi/tmogs-noice/pypogs/test.jpg', thresh1)
+                    self.save = True
+
+                area = countNonZero(thresh1)
+                summ = area * self._intensity_threshold #TRY THIS
+
+                # calculate moments of THRESH image
+                M = moments(thresh1)
+                # calculate x,y coordinate of center
+                if M["m00"] != 0:
+                    cX = (M["m10"] / M["m00"])
+                    cY = (M["m01"] / M["m00"])
+                else:
+                    cX, cY = 0, 0
+                    return
+                final_coord = (width_start+cX, height_start+cY)
+
+                # ret = get_centroids_from_image(img, image_th=self.image_th,
+                #                             binary_open=self.binary_open, filtsize=self.filtsize,
+                #                             crop=cr, downsample=ds, min_area=area_min,
+                #                             max_area=area_max, min_sum=sum_min, max_sum=sum_max,
+                #                             max_axis_ratio=self.spot_max_axis_ratio,
+                #                             sigma_mode=self.sigma_mode,
+                #                             bg_sub_mode=self.bg_subtract_mode,
+                #                             return_moments=True, sigma=self.image_sigma_th,
+                #                             centroid_window=self.centroid_window, 
+                #                             max_returned=1
+                #                             )
+                
+                if (cX, cY) != (0, 0):
+                    # print('cX: ', cX)
+                    # print('cY: ', cY)
+                    # if True:
+                    x = (final_coord[0] - imshape[1] / 2) * plate_scale
+                    # Image Y coordinates increase down!
+                    y = - (final_coord[1] - imshape[0] / 2) * plate_scale
+                    if None not in (x_search, y_search):
+                        dx = np.abs(x - x_search)
+                        dy = np.abs(y - y_search)
+                    else:
+                        (x_mean, y_mean) = self.mean_x_y_absolute
+                        dx = np.abs(x - x_mean)
+                        dy = np.abs(y - y_mean)
+                    # print(' ')
+                    # print('dx: ', dx)
+                    # print('dy: ', dy)
+                    # print('search_rad: ', search_rad)
+                    # print(' ')
+
+                    # print('rel to middle x= ', floor(x/plate_scale))
+                    # print('rel to middle y= ', floor(y/plate_scale))
+                    # print('imshape= ', imshape)
+                    # # print(x + imshape[1] / 2, y + imshape[0] / 2)
+                    # print('absolute x= ', x/plate_scale + imshape[1] / 2)
+                    # print('absolute y= ', -y/plate_scale + imshape[0]/2)
+                    # print('pixel intensity:', img[floor(-y/plate_scale - imshape[0] / 2)][floor(x/plate_scale + imshape[1] / 2)])
+                    intensity_check = img[floor(-y/plate_scale - imshape[0] / 2)][floor(x/plate_scale + imshape[1] / 2)]
+
+                    #print('max:', img.max()) #uncommment to output image max
+                    if search_rad is None or (abs(dx) < search_rad and abs(dy) < search_rad):
+                        self._success_count += 1
+                        self._fail_count = 0
+                        
+                        # print('summ = ', summ)
+                        # print('area = ', area)
+
+                        # summ =  1299293.0
+                        # area =  68980.0
+
+                        
+                        self.update_from_observation(x, y, summ, area)
+
+                        self._prev_x = x
+                        self._prev_y = y
+                        self._prev_sum = summ
+                        self._prev_area = area
+                                        
+                        return_value = True
+                        success = True
+            if not success:
+                self._success_count = 0
+                self._fail_count += 1
+                self.update_from_observation(None, None, None, None)
+                self.penalize_track(percentage=self.failure_sd_penalty)
+                if self._fail_count >= self._fail_to_drop:
+                    self._log_info('Lost track.')
+                    self._has_track = False
+                    self.clear_tracker()
+
+        else:  # Does not have track
+            # if img.max() < self._intensity_threshold:
+            #     print('img max ', img.max(axis= (0,1)))
+            #     print('line3212, no track, max<thresh')
+            #     self._blink_count += 1
+            #     self.update_from_observation(self._prev_x, self._prev_y, self._prev_sum, self._prev_area, self._prev_intensity)
+            #     #print(self._prev_x, self._prev_y, self._prev_sum, self._prev_area)
+                
+            #     # print(self._blink_count)
+            #     if self._blink_count >= self._blink_fail:
+            #         self._log_info('Bad spots tracked! Resetting spot tracking...')
+            #         # print('drop blink')
+            #         self._blink_count = 0
+            #         self._prev_x = None
+            #         self._prev_y = None
+            #         self._prev_sum = None
+            #         self._prev_area = None
+
+            # else:
+            if None not in (self._prev_x, self._prev_y, self._prev_sum, self._prev_area):
+                if img[floor(-self._prev_y/plate_scale - imshape[0] / 2)][floor(self._prev_x/plate_scale + imshape[1] / 2)] < self._intensity_threshold:
+                    # print('line3227, no track, target<thresh') #uncomment to output label for when target < thresh
+                    self._blink_count += 1
+                    #print('(line3556) blink no: ', self._blink_count)
+
+                else:
+                    self._blink_count = 0
+                    #print('(line3560) blink no: ', self._blink_count)
+
+            # Process image
+            (minVal, maxVal, minLoc, maxLoc) = minMaxLoc(img)
+            if maxVal < self._intensity_threshold: #image has no beacon in it
+                final_coord = (None, None)
+                area = None
+                summ = None
+                cX, cY = 0, 0
+            else:
+                if search_rad != None:
+                    width_start = min(max(maxLoc[0]-search_rad, 0), width_img )
+                    width_end = min(max(maxLoc[0] + search_rad, 0), width_img)
+                    height_start = min(max(maxLoc[1]-search_rad, 0), height_img)
+                    height_end = min(max(maxLoc[1]+search_rad, 0), height_img)
+                else:
+                    width_start = 0
+                    width_end = width_img
+                    height_start = 0
+                    height_end = height_img
+
+                crop_frame = img[height_start:height_end,
+                                width_start:width_end]  # height, width
+                ret, thresh1 = threshold(crop_frame, self._intensity_threshold, 1023, THRESH_TOZERO)
+                area = countNonZero(thresh1)
+                summ = area * self._intensity_threshold #TRY THIS
+
+                # calculate moments of THRESH image
+                M = moments(thresh1)
+                # calculate x,y coordinate of center
+                if M["m00"] != 0:
+                    cX = (M["m10"] / M["m00"])
+                    cY = (M["m01"] / M["m00"])
+                else:
+                    cX, cY = 0, 0
+                    return
+                final_coord = (width_start+cX, height_start+cY)
+
+            if (cX, cY) != (0, 0):
+                # if True:
+                self._success_count += 1
+                self._fail_count = 0
+                x = (final_coord[0] - imshape[1] / 2) * plate_scale
+                # Image Y coordinates increase down!
+                y = - (final_coord[1] - imshape[0] / 2) * plate_scale
+                
+                # print('x2 = ', x)
+                # print('y2 = ', y)
+                
+                # x =  [ -824.5304 -4440.7085  3010.9312]
+                # y =  [ 949.12946 3997.3594  2700.033  ]
+
+                # print('max2:', img.max())
+                (x_search, y_search) = self.pos_search_x_y
+                if self._auto_aquire:
+                    
+                    # x = float(x[0])
+                    # y = float(y[0])
+
+                    # print('summ2 = ', summ)
+                    # print('area2 = ', area)
+                    # print('x3 = ', x)
+                    # print('y3 = ', y)
+
+                    # summ =  1306523.0
+                    # area =  71727.0
+                    # x =  -824.5303955078125
+                    # y =  949.1294555664062
+                    
+                    intensity_check = img[floor(-y/plate_scale - imshape[0] / 2)][floor(x/plate_scale + imshape[1] / 2)]
+
+
+                    self.update_from_observation(x, y, summ, area)
+                    self._prev_x = x
+                    self._prev_y = y
+                    self._prev_sum = summ
+                    self._prev_area = area
+
+                    if self._success_count >= self._succ_to_start:
+                        self._log_info('Found track')
+                        self._has_track = True
+                elif None not in (x_search, y_search):
+                    dx = np.abs(x - x_search)
+                    dy = np.abs(y - y_search)
+                    index = (dx**2 + dy**2).argmin()
+                    x = float(x[index])
+                    y = float(y[index])
+                    dx = dx[index]
+                    dy = dy[index]
+                    # print('x4 = ', x)
+                    # print('y4 = ', y)
+                    # print('dx3 = ', dx)
+                    # print('dy3 = ', dy)
+                    intensity_check = img[floor(-y/plate_scale - imshape[0] / 2)][floor(x/plate_scale + imshape[1] / 2)]
+                    if search_rad is None or (abs(dx) < search_rad and abs(dy) < search_rad):
+                        summ = float(ret[1][0])
+                        area = float(ret[2][0])
+                        # print('summ3 = ', summ)
+                        # print('area3 = ', area)
+                        self.update_from_observation(x, y, summ, area)
+                        self._prev_x = x
+                        self._prev_y = y
+                        self._prev_sum = summ
+                        self._prev_area = area
+                        if self._success_count >= self._succ_to_start:
+                            self._log_info('Found track')
+                            self._has_track = True
+            else:
+                self._success_count = 0
+                self._fail_count += 1
+                self.update_from_observation(None, None, None, None)
+                self.clear_tracker()
+        return return_value        
+    
+    def update_from_observation(self, x, y, summ, area):
         """Update with new observed data for the track. Will not check any tracking validity (see
         update_from_image()).
 
@@ -3477,6 +3830,13 @@ class SpotTracker:
         self._pos_search_rad = None
         self._pos_search_x = None
         self._pos_search_y = None
+
+        self._prev_x = None
+        self._prev_y = None
+        self._prev_sum = None
+        self._prev_area = None
+        self._prev_intensity = None
+
         self._rmse2 = None
         self._sum_mean = None
         self._sum_variance = None
@@ -3484,3 +3844,4 @@ class SpotTracker:
         self._area_variance = None
         self._has_track = False
         self.goal_offset_x_y = np.array([0, 0])
+        self.first_frame = True

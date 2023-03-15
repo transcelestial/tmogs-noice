@@ -588,12 +588,12 @@ class LiveViewFrame(ttk.Frame):
         
         ttk.Label(self.bottom_frame2, text='X alignment:').grid(row=1, column=5, padx=(5,0))
         self.alignment_x_entry = ttk.Entry(self.bottom_frame2, width=10)
-        self.alignment_x_entry.insert(0,'0.0')
+        self.alignment_x_entry.insert(0,'4.5')
         self.alignment_x_entry.grid(row=1, column=6, padx=(5,0))
         
         ttk.Label(self.bottom_frame2, text='Y alignment:').grid(row=2, column=5, padx=(5,0))
         self.alignment_y_entry = ttk.Entry(self.bottom_frame2, width=10)
-        self.alignment_y_entry.insert(0,'0.0')
+        self.alignment_y_entry.insert(0,'2')
         self.alignment_y_entry.grid(row=2, column=6, padx=(5,0))
         
         ttk.Button(self.bottom_frame2, text='Manual Alignment', command=self.manual_set_goal) \
@@ -1020,7 +1020,7 @@ class LiveViewFrame(ttk.Frame):
             if self.prev_cam == 0:
                 self.prev_cam = cam
             else:
-                print("FPS: ", self.n_frames/(datetime.datetime.now() - self.start_time).total_seconds())
+                print("GUI FPS: ", self.n_frames/(datetime.datetime.now() - self.start_time).total_seconds())
                 self.prev_cam = cam 
                 self.n_frames = 0
             self.start_time = datetime.datetime.now()
