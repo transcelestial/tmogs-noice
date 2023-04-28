@@ -1,3 +1,6 @@
+NOTE: Main TMOGS software lives on branch feat/short-range-tracking 
+
+
 Welcome to (unofficial) pypogs!
 ==================
 
