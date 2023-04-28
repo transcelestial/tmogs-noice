@@ -547,7 +547,7 @@ class Camera:
             #Conversion from Y10 to RGB
             self._ocvcam_camera.set(cv.CAP_PROP_FOURCC, cv.VideoWriter_fourcc('Y','1','0',' '))
             self._ocvcam_camera.set(cv.CAP_PROP_CONVERT_RGB, 0)
-            self._ocvcam_camera.set(cv.CAP_PROP_FPS, 10)
+            self._ocvcam_camera.set(cv.CAP_PROP_FPS, 20)
 
             class OCVImageHandler():
                 def __init__(self, parent):
